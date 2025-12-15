@@ -1,0 +1,4 @@
+Running Recursion Necessity Test...\nExpr: (x='A') \/ (x != 'B' && x != 'C')
+Expected Size: 3 (size of x!='B' && x!='C')
+Actual Size: 3
+SUCCESS: Equivalent

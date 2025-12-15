@@ -1,0 +1,101 @@
+
+=== Comprehensive BDD Testing ===
+
+Testing utility operations...
+  implies: OK
+  equivalent: OK
+  size: OK (true=1, false=1, e1=2, and=3)
+Testing batch operations...
+  and_list: OK
+  or_list: OK
+Testing debugging operations...
+  to_string(true_) = ⊤
+  to_string(atom) = 
+If($6, ⊤, ⊥)
+  to_string(and) = 
+If($6, If($7 = "hello", ⊤, ⊥), ⊥)
+Testing logical operations...
+  AND with constants: OK
+  OR with constants: OK
+  NOT: OK
+  De Morgan's laws: OK
+  Associativity: OK
+Testing theory reasoning...
+  String conflict detection: OK
+  String independence: OK
+  Version reasoning: OK
+Testing mixed theory atoms...
+  Mixed theory: OK
+  Mixed theory size: 4
+Testing theory simplification...
+  (x > 1) && (x > 2) -> (x > 2): OK
+Testing more theory simplification...
+  IsTrue size: 2
+  IsTrue size: OK
+  String contradiction (x='A' && x='B' -> False): OK
+  String implication (x='A' -> x!='B'): OK
+  Version transitivity (x < 1 && x < 2 -> x < 1): OK
+  Strictness (x < 1 && x <= 1 -> x < 1): OK
+  Contradiction (x < 1 && x > 2 -> False): OK
+  Valid Range (x > 1 && x < 2 -> preserved): OK
+Testing edge cases...
+  Empty/single lists: OK
+  Implies reflexivity: OK
+  Constant sizes: OK
+Testing hash-consing...
+  Physical equality: OK
+Testing variable ordering impact...
+  Variable ordering check: OK (Expr size: 5)
+Testing DOT output...
+digraph G {
+  58 [label="$28"];
+  58 -> -1 [style=solid];
+  -1 [label="⊤", shape=box];
+  58 -> 0 [style=solid];
+  0 [label="⊥", shape=box];
+}
+digraph G {
+  0 [label="⊥", shape=box];
+}
+digraph G {
+  -1 [label="⊤", shape=box];
+}
+  DOT output: OK
+Testing SAT...
+  SAT found solution for OR
+  SAT: OK
+Testing convenience functions...
+  is_satisfiable: OK
+  is_not_equal: OK
+  is_eq, is_gt, is_ge: OK
+  xor: OK
+  iff: OK
+  Syntax operators: OK
+  Convenience functions: OK
+Testing restrict and ite...
+  ite: OK
+  restrict contradiction: OK
+  restrict String: OK
+  restrict Version: OK
+  restrict Version Edge Cases: OK
+  restrict: OK
+Testing restrict negative low branch...
+  Restrict negative low: OK
+Testing quantifier operations...
+  exists b. b = true: OK
+  forall b. b = false: OK
+  exists b. not b = true: OK
+  forall b. not b = false: OK
+  exists b. (b && c) = c: OK
+  forall b. (b || c) = c: OK
+  exists b. true = true: OK
+  forall b. true = true: OK
+  exists b. false = false: OK
+  forall b. false = false: OK
+  exists on unrelated var: OK
+  exists b. exists c. (b && c) = true: OK
+  forall b. forall c. (b || c) = false: OK
+  exists s. (s = "foo") = true: OK
+  exists s. (s = "foo" && s = "bar") = false: OK
+
+=== All 17 test suites passed! ===
