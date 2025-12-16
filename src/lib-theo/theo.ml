@@ -705,76 +705,175 @@ module Constraint_store = struct
   let find_upper_bound t v = Hashtbl.find_opt t.vers_upper v
 end
 
+let restrict_impl t max_var eval_atom =
+  let visited = UidTbl.create 1024 in
+  let rec visit u =
+    let uid = Positive.uid u in
+    match UidTbl.find_opt visited uid with
+    | Some res -> res
+    | None ->
+        let res =
+          match u with
+          | False -> false_
+          | If { atom; high; negate_high; low; _ } -> (
+              if atom.var > max_var then Bdd u
+              else
+                match eval_atom atom with
+                | Some true ->
+                    let h = visit high in
+                    if negate_high then not h else h
+                | Some false -> visit low
+                | None ->
+                    let h = visit high in
+                    let l = visit low in
+                    make_node atom (if negate_high then not h else h) l)
+        in
+        UidTbl.add visited uid res;
+        res
+  in
+  match t with
+  | Bdd False -> false_
+  | Bdd (Not u) -> not (visit u)
+  | Bdd (If _ as u) -> visit u
+
 let restrict t constraints =
   match t with
   | Bdd False -> false_
   | _ -> (
-      if constraints = [] then t
-      else
-        match Constraint_store.create constraints with
-        | None ->
-            false_ (* Contradiction in constraints -> empty set -> false *)
-        | Some store -> (
+      match constraints with
+      | [] -> t
+      | [ Boolean (v, b) ] ->
+          let b = Some b in
+          let eval_atom (atom : Atom.t) =
+            if atom.var = v then match atom.desc with IsTrue -> b | _ -> None
+            else None
+          in
+          restrict_impl t v eval_atom
+      | _ when List.compare_length_with constraints 5 <= 0 ->
+          let intern_constraints l =
+            List.map
+              (fun c ->
+                match c with
+                | Boolean (v, b) -> (v, Atom.IsTrue, b)
+                | String (v, op, s) -> (v, IsEqual s, op = `Eq)
+                | Version (v, op, ver) ->
+                    let version, polarity =
+                      match op with
+                      | `Ge -> ({ version = ver; inclusive = false }, false)
+                      | `Gt -> ({ version = ver; inclusive = true }, false)
+                      | `Le -> ({ version = ver; inclusive = true }, true)
+                      | `Lt -> ({ version = ver; inclusive = false }, true)
+                    in
+                    (v, IsLess version, polarity))
+              l
+          in
+          let check_boolean var _ (v', _, b') =
+            if var != v' then None else if b' then Some true else Some false
+          in
+          let check_string v s c =
+            match c with
+            | v', Atom.IsEqual s', b' ->
+                if v != v' then None
+                else if b' then
+                  if String.equal s s' then Some true else Some false
+                else if String.equal s s' then Some false
+                else None
+            | _ -> None
+          in
+          let check_version v ver c =
+            match c with
+            | v', Atom.IsLess ver', b' ->
+                if v != v' then None
+                else if b' then
+                  if compare_version_bound ver' ver <= 0 then Some true
+                  else None
+                else if compare_version_bound ver' ver >= 0 then Some false
+                else None
+            | _ -> None
+          in
+          let rec no_contradiction check var value b l =
+            match l with
+            | [] -> true
+            | c' :: r ->
+                (match check var value c' with
+                  | Some b' -> b = b'
+                  | None -> true)
+                && no_contradiction check var value b r
+          in
+          let rec validate_constraints l =
+            match l with
+            | [] -> true
+            | c :: r ->
+                let ok =
+                  match c with
+                  | v, Atom.IsTrue, b -> no_contradiction check_boolean v () b r
+                  | v, IsEqual s, b -> no_contradiction check_string v s b r
+                  | v, IsLess ver, b -> no_contradiction check_version v ver b r
+                in
+                ok && validate_constraints r
+          in
+          let lst = intern_constraints constraints in
+          let valid = validate_constraints lst in
+          if Stdlib.not valid then false_
+          else
+            let max_var =
+              List.fold_left (fun acc (var, _, _) -> max acc var) (-1) lst
+            in
+            let rec find_map f var value l =
+              match l with
+              | [] -> None
+              | c :: l -> begin
+                  match f var value c with
+                  | Some _ as result -> result
+                  | None -> find_map f var value l
+                end
+            in
             let eval_atom (atom : Atom.t) =
-              match atom.desc with
-              | IsTrue -> Constraint_store.find_bool store atom.var
-              | IsEqual s -> (
-                  match Constraint_store.find_string_eq store atom.var with
-                  | Some s' -> Some (String.equal s s')
-                  | None ->
-                      if Constraint_store.check_string_ne store atom.var s then
-                        Some false
-                      else None)
-              | IsLess atom_bound ->
-                  (* Check implications from range *)
-                  (* Atom is: var < v_atom (if !inc) or var <= v_atom (if inc) *)
-                  let implies_true =
-                    match Constraint_store.find_upper_bound store atom.var with
-                    | Some u -> compare_version_bound u atom_bound <= 0
-                    | None -> false
-                  in
-                  if implies_true then Some true
-                  else
-                    let implies_false =
+              match atom with
+              | { var; desc = IsTrue; _ } -> find_map check_boolean var () lst
+              | { var; desc = IsEqual s; _ } -> find_map check_string var s lst
+              | { var; desc = IsLess ver; _ } ->
+                  find_map check_version var ver lst
+            in
+            restrict_impl t max_var eval_atom
+      | _ -> (
+          match Constraint_store.create constraints with
+          | None ->
+              false_ (* Contradiction in constraints -> empty set -> false *)
+          | Some store ->
+              let eval_atom (atom : Atom.t) =
+                match atom.desc with
+                | IsTrue -> Constraint_store.find_bool store atom.var
+                | IsEqual s -> (
+                    match Constraint_store.find_string_eq store atom.var with
+                    | Some s' ->
+                        if String.equal s s' then Some true else Some false
+                    | None ->
+                        if Constraint_store.check_string_ne store atom.var s
+                        then Some false
+                        else None)
+                | IsLess atom_bound ->
+                    (* Check implications from range *)
+                    (* Atom is: var < v_atom (if !inc) or var <= v_atom (if inc) *)
+                    let implies_true =
                       match
-                        Constraint_store.find_lower_bound store atom.var
+                        Constraint_store.find_upper_bound store atom.var
                       with
-                      | Some l -> compare_version_bound l atom_bound >= 0
+                      | Some u -> compare_version_bound u atom_bound <= 0
                       | None -> false
                     in
-                    if implies_false then Some false else None
-            in
-            let visited = UidTbl.create 1024 in
-            let rec visit u =
-              let uid = Positive.uid u in
-              match UidTbl.find_opt visited uid with
-              | Some res -> res
-              | None ->
-                  let res =
-                    match u with
-                    | False -> false_
-                    | If { atom; high; negate_high; low; _ } -> (
-                        if atom.var > store.max_var then Bdd u
-                        else
-                          match eval_atom atom with
-                          | Some true ->
-                              let h = visit high in
-                              if negate_high then not h else h
-                          | Some false -> visit low
-                          | None ->
-                              let h = visit high in
-                              let l = visit low in
-                              make_node atom
-                                (if negate_high then not h else h)
-                                l)
-                  in
-                  UidTbl.add visited uid res;
-                  res
-            in
-            match t with
-            | Bdd False -> false_
-            | Bdd (Not u) -> not (visit u)
-            | Bdd (If _ as u) -> visit u))
+                    if implies_true then Some true
+                    else
+                      let implies_false =
+                        match
+                          Constraint_store.find_lower_bound store atom.var
+                        with
+                        | Some l -> compare_version_bound l atom_bound >= 0
+                        | None -> false
+                      in
+                      if implies_false then Some false else None
+              in
+              restrict_impl t store.max_var eval_atom))
 
 let and_ a b = ite a b false_
 let or_ a b = ite a true_ b
