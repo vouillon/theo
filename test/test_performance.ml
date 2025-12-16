@@ -1,5 +1,3 @@
-open Theo
-
 let benchmark name f =
   let t0 = Unix.gettimeofday () in
   let res = f () in
@@ -9,7 +7,7 @@ let benchmark name f =
 
 let test_chain_construction () =
   Printf.printf "Testing chain construction performance...\n";
-  let var_x = Theo.var String in
+  let var_x = Theo.var () in
   let n = 10000 in
 
   (* Construct a list of inequalities: x != "0", x != "1", ..., x != "N" *)

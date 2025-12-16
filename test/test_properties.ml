@@ -3,9 +3,9 @@ open QCheck
 
 (* Generators *)
 
-let bool_var_pool = Array.init 10 (fun _ -> Theo.var Boolean)
-let str_var_pool = Array.init 5 (fun _ -> Theo.var String)
-let ver_var_pool = Array.init 5 (fun _ -> Theo.var Version)
+let bool_var_pool = Array.init 10 (fun _ -> Theo.var ())
+let str_var_pool = Array.init 5 (fun _ -> Theo.var ())
+let ver_var_pool = Array.init 5 (fun _ -> Theo.var ())
 let gen_str_val = Gen.oneofl [ "a"; "b"; "c" ]
 
 let gen_ver_val =

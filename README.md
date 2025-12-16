@@ -55,8 +55,8 @@ dune runtest
 open Theo.Syntax (* Operators like &&, ||, not *)
 
 let () =
-  let x = Theo.var Boolean in
-  let y = Theo.var Boolean in
+  let x = Theo.var () in
+  let y = Theo.var () in
   
   (* Construct expressions *)
   let expr = (atom x) && (not (atom y)) in
@@ -71,7 +71,7 @@ let () =
 
 ```ocaml
 let () =
-  let v = Theo.var Version in
+  let v = Theo.var () in
   
   (* Define a version constraint: v < 2.0.0 *)
   let v_lt_2 = v < { major=2; minor=0; patch=0 } in

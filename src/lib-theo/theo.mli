@@ -29,13 +29,6 @@
 type version = { major : int; minor : int; patch : int }
 (** Semantic version as [{ major; minor; patch }] record. *)
 
-type _ kind =
-  | Boolean : bool kind
-  | String : string kind
-  | Version : version kind
-      (** GADT representing the kind of a variable. Ensures type safety between
-          variables and their values. *)
-
 type _ var
 (** Type-indexed variable. The type parameter indicates what kind of values the
     variable can hold (bool, string, or version). *)
@@ -43,7 +36,7 @@ type _ var
 type t
 (** Abstract type representing a BDD expression. *)
 
-type atom_constraint =
+type atomic_constraint =
   | Boolean of bool var * bool
   | String of string var * [ `Eq | `Ne ] * string
   | Version of version var * [ `Lt | `Le | `Ge | `Gt ] * version
@@ -52,15 +45,15 @@ type atom_constraint =
 
 (** {1 Variable Creation} *)
 
-val var : 'kind kind -> 'kind var
-(** [var kind] creates a fresh variable of the specified kind. Each call returns
-    a unique variable.
+val var : unit -> 'a var
+(** [var ()] creates a fresh variable. The type of the variable is inferred from
+    usage (boolean, string, or version).
 
     Example:
     {[
-      let b = var Boolean in
-      let s = var String in
-      let v = var Version in
+      let b = var () in
+      let s = var () in
+      let v = var () in
     ]} *)
 
 (** {1 Atomic Formulas} *)
@@ -241,7 +234,7 @@ val size : t -> int
 
     Complexity: O(|expr|) *)
 
-val restrict : t -> atom_constraint list -> t
+val restrict : t -> atomic_constraint list -> t
 (** [restrict expr constraints] simplifies [expr] by assuming the specified
     constraints hold. Supports Boolean, String, and Version constraints.
 
@@ -295,13 +288,13 @@ val forall : 'a var -> t -> t
 
 (** {1 Solving} *)
 
-val sat : t -> atom_constraint list option
+val sat : t -> atomic_constraint list option
 (** [sat expr] finds a satisfying set of constraints for [expr], if one exists.
     Returns [Some constraints] where [constraints] is a list of atomic
     constraints that make the expression true. Returns [None] if the expression
     is unsatisfiable (equivalent to [false_]). *)
 
-val shortest_sat : t -> atom_constraint list option
+val shortest_sat : t -> atomic_constraint list option
 (** [shortest_sat expr] finds a satisfying set of constraints with the minimum
     number of atomic constraints (shortest path in the BDD DAG). Returns [None]
     if unsatisfiable. *)

@@ -6,8 +6,8 @@ let test_utility () =
   Printf.printf "Testing utility operations...\n";
 
   (* Create some variables *)
-  let b1 = var Boolean in
-  let b2 = var Boolean in
+  let b1 = var () in
+  let b2 = var () in
 
   (* Create some expressions *)
   let e1 = atom b1 in
@@ -55,9 +55,9 @@ let test_utility () =
 let test_batch () =
   Printf.printf "Testing batch operations...\n";
 
-  let b1 = var Boolean in
-  let b2 = var Boolean in
-  let b3 = var Boolean in
+  let b1 = var () in
+  let b2 = var () in
+  let b3 = var () in
 
   let e1 = atom b1 in
   let e2 = atom b2 in
@@ -85,8 +85,8 @@ let test_batch () =
 let test_debug () =
   Printf.printf "Testing debugging operations...\n";
 
-  let b1 = var Boolean in
-  let s1 = var String in
+  let b1 = var () in
+  let s1 = var () in
 
   let e1 = atom b1 in
   let e2 = is_equal s1 "hello" in
@@ -111,8 +111,8 @@ let test_debug () =
 let test_logical_operations () =
   Printf.printf "Testing logical operations...\n";
 
-  let b1 = var Boolean in
-  let b2 = var Boolean in
+  let b1 = var () in
+  let b2 = var () in
   let e1 = atom b1 in
   let e2 = atom b2 in
 
@@ -147,8 +147,8 @@ let test_logical_operations () =
   Printf.printf "  De Morgan's laws: OK\n";
 
   (* Test associativity *)
-  let assoc1 = (e1 && e2) && atom (var Boolean) in
-  let assoc2 = e1 && e2 && atom (var Boolean) in
+  let assoc1 = (e1 && e2) && atom (var ()) in
+  let assoc2 = e1 && e2 && atom (var ()) in
   (* These won't be equivalent due to different variables, but they should work *)
   let _ = assoc1 in
   let _ = assoc2 in
@@ -161,8 +161,8 @@ let test_theory_reasoning () =
   Printf.printf "Testing theory reasoning...\n";
 
   (* Test string equality *)
-  let s1 = var String in
-  let s2 = var String in
+  let s1 = var () in
+  let s2 = var () in
 
   let eq1 = is_equal s1 "foo" in
   let eq2 = is_equal s1 "bar" in
@@ -180,7 +180,7 @@ let test_theory_reasoning () =
   Printf.printf "  String independence: OK\n";
 
   (* Test version comparisons *)
-  let v1 = var Version in
+  let v1 = var () in
   let lt_2 = is_lt v1 { major = 2; minor = 0; patch = 0 } in
   let lt_3 = is_lt v1 { major = 3; minor = 0; patch = 0 } in
 
@@ -200,9 +200,9 @@ let test_theory_reasoning () =
 let test_mixed_theory () =
   Printf.printf "Testing mixed theory atoms...\n";
 
-  let b = var Boolean in
-  let s = var String in
-  let v = var Version in
+  let b = var () in
+  let s = var () in
+  let v = var () in
 
   let bool_expr = atom b in
   let str_expr = is_equal s "test" in
@@ -233,7 +233,7 @@ let test_edge_cases () =
   assert (is_tautology (or_list []) = false);
 
   (* Single element lists *)
-  let b = var Boolean in
+  let b = var () in
   let e = atom b in
   assert (equivalent (and_list [ e ]) e);
   assert (equivalent (or_list [ e ]) e);
@@ -256,7 +256,7 @@ let test_edge_cases () =
 let test_theory_simplification () =
   Printf.printf "Testing theory simplification...\n";
 
-  let v = var Version in
+  let v = var () in
 
   (* Case: x > 1 && x > 2 should be just x > 2 *)
   (* x > 1 is not (x <= 1) *)
@@ -277,9 +277,9 @@ let test_theory_simplification () =
 let test_more_theory_simplification () =
   Printf.printf "Testing more theory simplification...\n";
 
-  let a = var Version in
-  let b = var String in
-  let c = var Boolean in
+  let a = var () in
+  let b = var () in
+  let c = var () in
 
   (* IsTrue simplification *)
   let atom_c = atom c in
@@ -338,7 +338,7 @@ external phys_equal : 'a -> 'a -> bool = "%eq"
 
 let test_hash_consing () =
   Printf.printf "Testing hash-consing...\n";
-  let b = var Boolean in
+  let b = var () in
   let e1 = atom b in
   let e2 = atom b in
   assert (phys_equal e1 e2);
@@ -351,10 +351,10 @@ let test_hash_consing () =
 let test_variable_ordering () =
   Printf.printf "Testing variable ordering impact...\n";
   (* Case 1: Interleaved *)
-  let a1 = var Boolean in
-  let b1 = var Boolean in
-  let a2 = var Boolean in
-  let b2 = var Boolean in
+  let a1 = var () in
+  let b1 = var () in
+  let a2 = var () in
+  let b2 = var () in
   let expr1 = (atom a1 && atom b1) || (atom a2 && atom b2) in
 
   (* Case 2: Grouped (simulated by just checking size, 
@@ -369,7 +369,7 @@ let test_variable_ordering () =
 
 let test_dot_output () =
   Printf.printf "Testing DOT output...\n";
-  let b = var Boolean in
+  let b = var () in
   let e = atom b in
   (* Just ensure it doesn't crash *)
   print_dot stdout e;
@@ -388,14 +388,14 @@ let test_sat () =
   assert (sat false_ = None);
 
   (* Case 3: Simple boolean *)
-  let b = var Boolean in
+  let b = var () in
   let e = atom b in
   (match sat e with
   | Some [ Boolean (v, true) ] -> assert (v = b)
   | _ -> assert false);
 
   (* Case 4: Unsatisfiable combination *)
-  let s = var String in
+  let s = var () in
   let e_s = is_equal s "a" && is_equal s "b" in
   if equivalent e_s false_ then assert (sat e_s = None)
   else
@@ -403,7 +403,7 @@ let test_sat () =
       "  (Note: Theory contradictions not fully reduced to False yet)\n";
 
   (* Case 5: Satisfiable combination *)
-  let b2 = var Boolean in
+  let b2 = var () in
   let e_mix = atom b || atom b2 in
   (match sat e_mix with
   | Some (Boolean (_, _) :: _) -> Printf.printf "  SAT found solution for OR\n"
@@ -418,19 +418,19 @@ let test_convenience () =
   (* is_satisfiable *)
   assert (is_satisfiable true_ = true);
   assert (is_satisfiable false_ = false);
-  let b = var Boolean in
+  let b = var () in
   assert (is_satisfiable (atom b) = true);
   Printf.printf "  is_satisfiable: OK\n";
 
   (* is_not_equal for strings *)
-  let s = var String in
+  let s = var () in
   let eq_a = is_equal s "a" in
   let ne_a = is_not_equal s "a" in
   assert (equivalent ne_a (not eq_a));
   Printf.printf "  is_not_equal: OK\n";
 
   (* Version comparisons: is_eq, is_gt, is_ge *)
-  let v = var Version in
+  let v = var () in
   let lt = is_lt v { major = 2; minor = 0; patch = 0 } in
   let le = is_le v { major = 2; minor = 0; patch = 0 } in
   let gt = is_gt v { major = 2; minor = 0; patch = 0 } in
@@ -453,8 +453,8 @@ let test_convenience () =
   assert (is_tautology (xor true_ true_) = false);
   assert (is_tautology (xor false_ false_) = false);
   (* xor is satisfiable (not a tautology, not a contradiction) *)
-  let b1 = var Boolean in
-  let b2 = var Boolean in
+  let b1 = var () in
+  let b2 = var () in
   let e1 = atom b1 in
   let e2 = atom b2 in
   let xor_expr = xor e1 e2 in
@@ -502,9 +502,9 @@ let test_convenience () =
 
 let test_restrict_ite () =
   Printf.printf "Testing restrict and ite...\n";
-  let b1 = var Boolean in
-  let b2 = var Boolean in
-  let b3 = var Boolean in
+  let b1 = var () in
+  let b2 = var () in
+  let b3 = var () in
   let e1 = atom b1 in
   let e2 = atom b2 in
   let e3 = atom b3 in
@@ -542,7 +542,7 @@ let test_restrict_ite () =
   Printf.printf "  restrict contradiction: OK\n";
 
   (* Test String restrictions *)
-  let s1 = var String in
+  let s1 = var () in
   let e_s = is_equal s1 "a" in
   (* if s1="a" then True else False *)
 
@@ -560,7 +560,7 @@ let test_restrict_ite () =
   Printf.printf "  restrict String: OK\n";
 
   (* Test Version restrictions *)
-  let v = var Version in
+  let v = var () in
   (* e_v: v < 2.0.0 *)
   let e_v = is_lt v { major = 2; minor = 0; patch = 0 } in
 
@@ -644,12 +644,12 @@ let test_restrict_ite () =
 let test_restrict_validation () =
   Printf.printf "Running restrict validation tests...\n";
   (* Setup variables *)
-  let s = var String in
-  let v = var Version in
+  let s = var () in
+  let v = var () in
   let expr = true_ in
 
   (* 1. Boolean Contradiction (already covered but good to be explicit) *)
-  let b = var Boolean in
+  let b = var () in
   let r_bool = restrict expr [ Boolean (b, true); Boolean (b, false) ] in
   assert (equivalent r_bool false_);
 
@@ -710,9 +710,9 @@ let test_restrict_validation () =
 (* Test restrict with negative low branch case *)
 let test_restrict_negative_low () =
   Printf.printf "Testing restrict negative low branch...\n";
-  let x = var Boolean in
-  let y = var Boolean in
-  let z = var Boolean in
+  let x = var () in
+  let y = var () in
+  let z = var () in
   (* if x then y else z *)
   let f = ite (atom x) (atom y) (atom z) in
 
@@ -733,9 +733,9 @@ let test_restrict_negative_low () =
 let test_quantifiers () =
   Printf.printf "Testing quantifier operations...\n";
 
-  let b1 = var Boolean in
-  let b2 = var Boolean in
-  let b3 = var Boolean in
+  let b1 = var () in
+  let b2 = var () in
+  let b3 = var () in
 
   let e1 = atom b1 in
   let e2 = atom b2 in
@@ -801,7 +801,7 @@ let test_quantifiers () =
   Printf.printf "  forall b. forall c. (b || c) = false: OK\n";
 
   (* Test with string variables *)
-  let s = var String in
+  let s = var () in
   let eq_foo = is_equal s "foo" in
   let eq_bar = is_equal s "bar" in
 

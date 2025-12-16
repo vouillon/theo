@@ -19,20 +19,15 @@ let compare_version_bound ({ version; inclusive } : version_bound)
   let c = compare_raw_version version version' in
   if c <> 0 then c else Bool.compare inclusive inclusive'
 
-type _ kind =
-  | Boolean : bool kind
-  | String : string kind
-  | Version : version kind
-
 type _ var = int
 
 let var_counter = ref 0
 
-let var (type a) (_ : a kind) : a var =
+let var () =
   incr var_counter;
   !var_counter
 
-type atom_constraint =
+type atomic_constraint =
   | Boolean of bool var * bool
   | String of string var * [ `Eq | `Ne ] * string
   | Version of version var * [ `Lt | `Le | `Ge | `Gt ] * version
@@ -40,8 +35,8 @@ type atom_constraint =
 (*** Atoms ***)
 
 module Atom = struct
-  type desc = Bool | Eq of string | Leq of version_bound
-  type t = { var : int; desc : desc; id : int }
+  type payload = Bool | Eq of string | Leq of version_bound
+  type t = { var : int; payload : payload; id : int }
 
   module WeakTbl = Weak.Make (struct
     type nonrec t = t
@@ -49,20 +44,20 @@ module Atom = struct
     let equal t t' =
       if t.var <> t'.var then false
       else
-        (* Two atoms are equal iff they have the same variable and description. *)
-        match (t.desc, t'.desc) with
+        (* Two atoms are equal iff they have the same variable and payloadription. *)
+        match (t.payload, t'.payload) with
         | Bool, Bool -> true
         | Eq s, Eq s' -> String.equal s s'
         | Leq v, Leq v' -> Int.equal (compare_version_bound v v') 0
         | _ -> false
 
-    let hash (t : t) = Hashtbl.hash (t.var, t.desc)
+    let hash (t : t) = Hashtbl.hash (t.var, t.payload)
   end)
 
   let equal a a' = a == a'
 
-  let to_string { var; desc; _ } =
-    match desc with
+  let to_string { var; payload; _ } =
+    match payload with
     | Bool -> Printf.sprintf "$%d" var
     | Eq s -> Printf.sprintf "$%d = %S" var s
     | Leq { version = { major; minor; patch }; inclusive } ->
@@ -73,14 +68,14 @@ module Atom = struct
   let next_atom_id = ref 0
   let atom_tbl = WeakTbl.create 512
 
-  let make var desc =
+  let make var payload =
     let id = !next_atom_id in
-    let atom = { var; desc; id } in
+    let atom = { var; payload; id } in
     let atom' = WeakTbl.merge atom_tbl atom in
     if Int.equal atom'.id id then incr next_atom_id;
     atom'
 
-  let sentinel = { var = max_int; desc = Bool; id = max_int }
+  let sentinel = { var = max_int; payload = Bool; id = max_int }
 
   (* Atom ordering is crucial for correctness: theory simplification relies on
      atoms of the same variable being clustered, and version comparison further
@@ -89,7 +84,7 @@ module Atom = struct
     let c = Int.compare a.var a'.var in
     if c <> 0 then c
     else
-      match (a.desc, a'.desc) with
+      match (a.payload, a'.payload) with
       | Bool, Bool -> 0
       | Bool, _ -> -1
       | _, Bool -> 1
@@ -350,7 +345,7 @@ let simplify_assuming v (u : positive u) (atom : Atom.t) (high : positive u)
     (negate_high : bool) (low : positive u) negate_result : t =
   if v.Atom.var <> atom.var then with_polarity negate_result u
   else
-    match v.desc with
+    match v.payload with
     | Bool -> with_polarity negate_result u
     | Leq _ -> with_polarity (negate_result <> negate_high) high
     | Eq _ -> with_polarity negate_result (simplify_node v low)
@@ -359,7 +354,7 @@ let check_simplification v (atom : Atom.t) (high : positive u)
     (negate_high : bool) (low : positive u) (target : t) : bool =
   if v.Atom.var <> atom.var then false
   else
-    match v.desc with
+    match v.payload with
     | Bool -> false
     | Leq _ -> Bdd.equal (with_polarity negate_high high) target
     | Eq _ -> Bdd.equal (Bdd (simplify_node v low)) target
@@ -840,7 +835,7 @@ let restrict t constraints =
           let b = Some b in
           let eval_atom (atom : Atom.t) =
             if atom.var == v then
-              match atom.desc with
+              match atom.payload with
               | Bool -> b
               | Eq s -> check_string s c
               | Leq ver -> check_version ver c
@@ -859,9 +854,9 @@ let restrict t constraints =
           let rec validate_constraints l =
             match l with
             | [] -> true
-            | (v, desc, b) :: r ->
+            | (v, payload, b) :: r ->
                 let ok =
-                  match desc with
+                  match payload with
                   | Atom.Bool -> no_contradiction check_boolean v () b r
                   | Eq s -> no_contradiction check_string v s b r
                   | Leq ver -> no_contradiction check_version v ver b r
@@ -885,8 +880,8 @@ let restrict t constraints =
                     | Some _ as result -> result
                     | None -> find_map check var value r)
             in
-            let eval_atom ({ var; desc; _ } : Atom.t) =
-              match desc with
+            let eval_atom ({ var; payload; _ } : Atom.t) =
+              match payload with
               | Bool -> find_map check_boolean var () lst
               | Eq s -> find_map check_string var s lst
               | Leq ver -> find_map check_version var ver lst
@@ -898,7 +893,7 @@ let restrict t constraints =
               false_ (* Contradiction in constraints -> empty set -> false *)
           | Some store ->
               let eval_atom (atom : Atom.t) =
-                match atom.desc with
+                match atom.payload with
                 | Bool -> Constraint_store.find_bool store atom.var
                 | Eq s -> (
                     match Constraint_store.find_string_eq store atom.var with
@@ -1095,7 +1090,7 @@ end
 
 (*** Solvers ***)
 
-let sat (t : t) : atom_constraint list option =
+let sat (t : t) : atomic_constraint list option =
   let rec solve u target =
     match u with
     | False -> [] (* Only reached if valid, so return empty constraints *)
@@ -1109,7 +1104,7 @@ let sat (t : t) : atom_constraint list option =
         if high_satisfiable then
           let constraints = solve high eff_target in
           let c =
-            match atom.desc with
+            match atom.payload with
             | Atom.Bool -> Boolean (atom.var, true)
             | Atom.Eq s -> String (atom.var, `Eq, s)
             | Atom.Leq { version; inclusive } ->
@@ -1119,7 +1114,7 @@ let sat (t : t) : atom_constraint list option =
         else
           let constraints = solve low target in
           let c =
-            match atom.desc with
+            match atom.payload with
             | Atom.Bool -> Boolean (atom.var, false)
             | Atom.Eq s -> String (atom.var, `Ne, s)
             | Atom.Leq { version; inclusive } ->
@@ -1132,7 +1127,7 @@ let sat (t : t) : atom_constraint list option =
   | Bdd (If _ as u) -> Some (solve u true)
   | Bdd (Not u) -> Some (solve u false)
 
-let shortest_sat (t : t) : atom_constraint list option =
+let shortest_sat (t : t) : atomic_constraint list option =
   let dist_cache = UidTbl.create 128 in
   let rec get_dist u target =
     let uid = Bdd.uid (Bdd u) in
@@ -1179,7 +1174,7 @@ let shortest_sat (t : t) : atom_constraint list option =
           d_high <= d_low
         then
           let c =
-            match atom.desc with
+            match atom.payload with
             | Atom.Bool -> Boolean (atom.var, true)
             | Atom.Eq s -> String (atom.var, `Eq, s)
             | Atom.Leq { version; inclusive } ->
@@ -1188,7 +1183,7 @@ let shortest_sat (t : t) : atom_constraint list option =
           c :: trace high eff_target_high
         else
           let c =
-            match atom.desc with
+            match atom.payload with
             | Atom.Bool -> Boolean (atom.var, false)
             | Atom.Eq s -> String (atom.var, `Ne, s)
             | Atom.Leq { version; inclusive } ->
