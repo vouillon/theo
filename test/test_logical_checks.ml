@@ -5,8 +5,8 @@ let assert_bool b msg = if Stdlib.not b then failwith ("FAIL: " ^ msg)
 
 let test_logical_checks () =
   Printf.printf "Test logical checks...\n";
-  let a = atom (new_var Boolean) in
-  let b = atom (new_var Boolean) in
+  let a = atom (var Boolean) in
+  let b = atom (var Boolean) in
 
   (* logical_implies *)
   assert_bool (logical_implies (a && b) a) "a&b => a";

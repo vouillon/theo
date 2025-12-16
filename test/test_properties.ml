@@ -3,9 +3,9 @@ open QCheck
 
 (* Generators *)
 
-let bool_var_pool = Array.init 10 (fun _ -> Theo.new_var Boolean)
-let str_var_pool = Array.init 5 (fun _ -> Theo.new_var String)
-let ver_var_pool = Array.init 5 (fun _ -> Theo.new_var Version)
+let bool_var_pool = Array.init 10 (fun _ -> Theo.var Boolean)
+let str_var_pool = Array.init 5 (fun _ -> Theo.var String)
+let ver_var_pool = Array.init 5 (fun _ -> Theo.var Version)
 let gen_str_val = Gen.oneofl [ "a"; "b"; "c" ]
 
 let gen_ver_val =
@@ -284,6 +284,9 @@ type naive_expr =
   | NNot of naive_expr
   | NAnd of naive_expr * naive_expr
   | NOr of naive_expr * naive_expr
+  | NImplies of naive_expr * naive_expr
+  | NIff of naive_expr * naive_expr
+  | NXor of naive_expr * naive_expr
   | NTrue
   | NFalse
 
@@ -298,6 +301,9 @@ let rec naive_to_bdd = function
   | NNot e -> Theo.not (naive_to_bdd e)
   | NAnd (e1, e2) -> Theo.and_ (naive_to_bdd e1) (naive_to_bdd e2)
   | NOr (e1, e2) -> Theo.or_ (naive_to_bdd e1) (naive_to_bdd e2)
+  | NImplies (e1, e2) -> Theo.implies (naive_to_bdd e1) (naive_to_bdd e2)
+  | NIff (e1, e2) -> Theo.iff (naive_to_bdd e1) (naive_to_bdd e2)
+  | NXor (e1, e2) -> Theo.xor (naive_to_bdd e1) (naive_to_bdd e2)
   | NTrue -> Theo.true_
   | NFalse -> Theo.false_
 
@@ -363,6 +369,9 @@ let rec eval_naive expr w =
   | NNot e -> Stdlib.not (eval_naive e w)
   | NAnd (e1, e2) -> eval_naive e1 w && eval_naive e2 w
   | NOr (e1, e2) -> eval_naive e1 w || eval_naive e2 w
+  | NImplies (e1, e2) -> Stdlib.not (eval_naive e1 w) || eval_naive e2 w
+  | NIff (e1, e2) -> eval_naive e1 w = eval_naive e2 w
+  | NXor (e1, e2) -> eval_naive e1 w <> eval_naive e2 w
   | NTrue -> true
   | NFalse -> false
 
@@ -448,6 +457,18 @@ let rec gen_naive_expr depth =
           (fun e1 e2 -> NOr (e1, e2))
           (gen_naive_expr (depth / 2))
           (gen_naive_expr (depth / 2));
+        Gen.map2
+          (fun e1 e2 -> NImplies (e1, e2))
+          (gen_naive_expr (depth / 2))
+          (gen_naive_expr (depth / 2));
+        Gen.map2
+          (fun e1 e2 -> NIff (e1, e2))
+          (gen_naive_expr (depth / 2))
+          (gen_naive_expr (depth / 2));
+        Gen.map2
+          (fun e1 e2 -> NXor (e1, e2))
+          (gen_naive_expr (depth / 2))
+          (gen_naive_expr (depth / 2));
       ]
 
 let prop_fuzz_evaluation =
@@ -460,6 +481,45 @@ let prop_fuzz_evaluation =
       let restricted_bdd = Theo.restrict bdd constraints in
       if expected_bool then Theo.equivalent restricted_bdd Theo.true_
       else Theo.equivalent restricted_bdd Theo.false_)
+
+let shuffle_list l state =
+  let a = Array.of_list l in
+  let len = Array.length a in
+  for i = len - 1 downto 1 do
+    let j = Random.State.int state (i + 1) in
+    let t = a.(i) in
+    a.(i) <- a.(j);
+    a.(j) <- t
+  done;
+  Array.to_list a
+
+let prop_restrict_consistent =
+  Test.make ~name:"Restrict Partial: eval (restrict f C) w = eval f w"
+    ~count:2000
+    (triple (make (gen_naive_expr 4)) (make gen_world) small_nat)
+    (fun (naive, world, seed_int) ->
+      let bdd = naive_to_bdd naive in
+      let expected_bool = eval_naive naive world in
+      let constraints = world_to_constraints world in
+      let state = Random.State.make [| seed_int |] in
+      let shuffled = shuffle_list constraints state in
+      let subset =
+        if List.length shuffled = 0 then []
+        else if seed_int mod 2 = 0 then
+          (* Biased towards small lists *)
+          let k = min (List.length shuffled) (Random.State.int state 6) in
+          List.init k (fun i -> List.nth shuffled i)
+        else
+          (* Random subset *)
+          let subset_size = Random.State.int state (List.length shuffled + 1) in
+          List.init subset_size (fun i -> List.nth shuffled i)
+      in
+
+      let restricted_bdd = Theo.restrict bdd subset in
+      (* Evaluate restricted BDD in the full world *)
+      let fully_evaluated = Theo.restrict restricted_bdd constraints in
+      if expected_bool then Theo.equivalent fully_evaluated Theo.true_
+      else Theo.equivalent fully_evaluated Theo.false_)
 
 let bdd_arbitrary = make (Gen.map naive_to_bdd (gen_naive_expr 4))
 
@@ -540,4 +600,5 @@ let () =
       prop_quantifier_duality;
       prop_quantifier_distributivity_exists_or;
       prop_quantifier_distributivity_forall_and;
+      prop_restrict_consistent;
     ]

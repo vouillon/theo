@@ -6,7 +6,7 @@ let assert_bool b msg = if Stdlib.not b then failwith ("FAIL: " ^ msg)
 let test_optimization () =
   Printf.printf "Test optimization (balanced vs linear)...\n";
 
-  let vars = List.init 20 (fun _ -> atom (new_var Boolean)) in
+  let vars = List.init 20 (fun _ -> atom (var Boolean)) in
 
   (* Re-implement linear fold for comparison *)
   let linear_and = List.fold_left ( && ) true_ vars in

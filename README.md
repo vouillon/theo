@@ -52,12 +52,11 @@ dune runtest
 ### Basic Boolean Logic
 
 ```ocaml
-open Theo
 open Theo.Syntax (* Operators like &&, ||, not *)
 
 let () =
-  let x = new_var Boolean in
-  let y = new_var Boolean in
+  let x = Theo.var Boolean in
+  let y = Theo.var Boolean in
   
   (* Construct expressions *)
   let expr = (atom x) && (not (atom y)) in
@@ -72,13 +71,13 @@ let () =
 
 ```ocaml
 let () =
-  let v = new_var Version in
+  let v = Theo.var Version in
   
   (* Define a version constraint: v < 2.0.0 *)
-  let v_lt_2 = is_lt v { major=2; minor=0; patch=0 } in
+  let v_lt_2 = v < { major=2; minor=0; patch=0 } in
   
   (* Define another: v >= 1.5.0 *)
-  let v_ge_1_5 = is_ge v { major=1; minor=5; patch=0 } in
+  let v_ge_1_5 = v >= { major=1; minor=5; patch=0 } in
   
   (* Combine: 1.5.0 <= v < 2.0.0 *)
   let valid_range = v_lt_2 && v_ge_1_5 in

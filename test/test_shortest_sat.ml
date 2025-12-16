@@ -13,10 +13,10 @@ let test_shortest_sat () =
      Greedy 'sat' might pick d'=T or (a'=T... depending on order).
      Shortest should be length 1 (d'=T).
   *)
-  let d' = atom (new_var Boolean) in
-  let a' = atom (new_var Boolean) in
-  let b' = atom (new_var Boolean) in
-  let c' = atom (new_var Boolean) in
+  let d' = atom (var Boolean) in
+  let a' = atom (var Boolean) in
+  let b' = atom (var Boolean) in
+  let c' = atom (var Boolean) in
 
   let expr1 = (a' && b' && c') || d' in
 
@@ -52,11 +52,11 @@ let test_shortest_sat () =
      'sat' usually prefers High, so it picks x0=T, x1=T... (Length 4).
      'shortest_sat' should pick x0=F, y1=T (Length 2).
   *)
-  let x0 = atom (new_var Boolean) in
-  let x1 = atom (new_var Boolean) in
-  let x2 = atom (new_var Boolean) in
-  let x3 = atom (new_var Boolean) in
-  let y1 = atom (new_var Boolean) in
+  let x0 = atom (var Boolean) in
+  let x1 = atom (var Boolean) in
+  let x2 = atom (var Boolean) in
+  let x3 = atom (var Boolean) in
+  let y1 = atom (var Boolean) in
 
   let long_path = x0 && x1 && x2 && x3 in
   let short_path = (not x0) && y1 in

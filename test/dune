@@ -25,3 +25,7 @@
 (test
  (name test_benchmark)
  (libraries theo))
+
+(test
+ (name test_performance)
+ (libraries theo unix))

@@ -5,8 +5,8 @@ let assert_equal_bool b1 b2 =
   if b1 <> b2 then failwith "assert_equal_bool failed"
 
 let test_ite_constant_check () =
-  let v1 = atom (new_var Boolean) in
-  let v2 = atom (new_var Boolean) in
+  let v1 = atom (var Boolean) in
+  let v2 = atom (var Boolean) in
   (* Tautology: v1 || not v1 -> True *)
   Printf.printf "Checking tautology...\n";
   let res = ite_constant v1 true_ (not v1) in

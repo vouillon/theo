@@ -28,7 +28,7 @@ type _ var = int
 
 let var_counter = ref 0
 
-let new_var (type a) (_ : a kind) : a var =
+let var (type a) (_ : a kind) : a var =
   incr var_counter;
   !var_counter
 
@@ -40,7 +40,7 @@ type atom_constraint =
 (*** Atoms ***)
 
 module Atom = struct
-  type desc = IsTrue | IsEqual of string | IsLess of version_bound
+  type desc = Bool | Eq of string | Leq of version_bound
   type t = { var : int; desc : desc; id : int }
 
   module WeakTbl = Weak.Make (struct
@@ -51,9 +51,9 @@ module Atom = struct
       else
         (* Two atoms are equal iff they have the same variable and description. *)
         match (t.desc, t'.desc) with
-        | IsTrue, IsTrue -> true
-        | IsEqual s, IsEqual s' -> String.equal s s'
-        | IsLess v, IsLess v' -> Int.equal (compare_version_bound v v') 0
+        | Bool, Bool -> true
+        | Eq s, Eq s' -> String.equal s s'
+        | Leq v, Leq v' -> Int.equal (compare_version_bound v v') 0
         | _ -> false
 
     let hash (t : t) = Hashtbl.hash (t.var, t.desc)
@@ -63,15 +63,15 @@ module Atom = struct
 
   let to_string { var; desc; _ } =
     match desc with
-    | IsTrue -> Printf.sprintf "$%d" var
-    | IsEqual s -> Printf.sprintf "$%d = %S" var s
-    | IsLess { version = { major; minor; patch }; inclusive } ->
+    | Bool -> Printf.sprintf "$%d" var
+    | Eq s -> Printf.sprintf "$%d = %S" var s
+    | Leq { version = { major; minor; patch }; inclusive } ->
         Printf.sprintf "$%d %s %d.%d.%d" var
           (if inclusive then "<=" else "<")
           major minor patch
 
   let next_atom_id = ref 0
-  let atom_tbl = WeakTbl.create 4096
+  let atom_tbl = WeakTbl.create 512
 
   let make var desc =
     let id = !next_atom_id in
@@ -80,7 +80,7 @@ module Atom = struct
     if Int.equal atom'.id id then incr next_atom_id;
     atom'
 
-  let sentinel = { var = max_int; desc = IsTrue; id = max_int }
+  let sentinel = { var = max_int; desc = Bool; id = max_int }
 
   (* Atom ordering is crucial for correctness: theory simplification relies on
      atoms of the same variable being clustered, and version comparison further
@@ -90,13 +90,13 @@ module Atom = struct
     if c <> 0 then c
     else
       match (a.desc, a'.desc) with
-      | IsTrue, IsTrue -> 0
-      | IsTrue, _ -> -1
-      | _, IsTrue -> 1
-      | IsEqual v, IsEqual v' -> String.compare v v'
-      | IsEqual _, _ -> -1
-      | _, IsEqual _ -> 1
-      | IsLess v, IsLess v' -> compare_version_bound v v'
+      | Bool, Bool -> 0
+      | Bool, _ -> -1
+      | _, Bool -> 1
+      | Eq v, Eq v' -> String.compare v v'
+      | Eq _, _ -> -1
+      | _, Eq _ -> 1
+      | Leq v, Leq v' -> compare_version_bound v v'
 
   let min a a' =
     let c = compare a a' in
@@ -149,6 +149,10 @@ module Bdd = struct
 
   let compare t t' = Int.compare (uid t) (uid t')
 end
+
+let equal = Bdd.equal
+let compare = Bdd.compare
+let hash = Bdd.uid
 
 module UidTbl = Hashtbl.Make (struct
   type t = int
@@ -244,7 +248,7 @@ let with_polarity negate t = if negate then Bdd (Not t) else Bdd t
 
 (* split: Decomposes a BDD into (is_negated, positive_core).
    This allows treating Not as a flag rather than a node. *)
-let split (Bdd u) =
+let[@inline] split (Bdd u) =
   match u with
   | Not n -> (true, n)
   | If _ as n -> (false, n)
@@ -291,7 +295,7 @@ module Positive = struct
 
   let equal (t : positive u) (t' : positive u) = t == t'
   let hash = uid
-  let weak_tbl = WeakTbl.create 4096
+  let weak_tbl = WeakTbl.create 2048
   let next_id = ref 1
 
   (* Hash-consing constructor: ensures each unique node has exactly one
@@ -313,7 +317,7 @@ end
 module Simplify_cache = struct
   module Table = Ephemeron.K1.Make (Positive)
 
-  let cache = Table.create 4096
+  let cache = Table.create 128
   let find t = Table.find_opt cache t
   let add t res = Table.add cache t res
 end
@@ -321,16 +325,25 @@ end
 (* Theory simplification: when an atom like "v = A" is true, it implies
    "v != B" for any B != A. These functions propagate such implications
    through the BDD to simplify redundant nodes. *)
-let rec simplify_node v (u : positive u) =
-  match u with
-  | If { atom; low; _ } when atom.var = v.Atom.var -> (
-      match Simplify_cache.find u with
-      | Some res -> res
-      | None ->
-          let res = simplify_node v low in
-          Simplify_cache.add u res;
-          res)
-  | If _ | False -> u
+let simplify_node v (u : positive u) =
+  let rec find_cached v u =
+    match u with
+    | If { atom; low; _ } when atom.var = v.Atom.var -> (
+        match Simplify_cache.find u with
+        | Some res -> res
+        | None ->
+            let res = find_cached v low in
+            Simplify_cache.add u res;
+            res)
+    | _ -> u
+  in
+  let rec skip v count u =
+    match u with
+    | If { atom; low; _ } when atom.var = v.Atom.var ->
+        if count > 0 then skip v (count - 1) low else find_cached v u
+    | _ -> u
+  in
+  skip v 10 u
 
 (* simplify_assuming: Simplifies 'u' assuming atom 'v' is true. *)
 let simplify_assuming v (u : positive u) (atom : Atom.t) (high : positive u)
@@ -338,18 +351,18 @@ let simplify_assuming v (u : positive u) (atom : Atom.t) (high : positive u)
   if v.Atom.var <> atom.var then with_polarity negate_result u
   else
     match v.desc with
-    | IsTrue -> with_polarity negate_result u
-    | IsLess _ -> with_polarity (negate_result <> negate_high) high
-    | IsEqual _ -> with_polarity negate_result (simplify_node v low)
+    | Bool -> with_polarity negate_result u
+    | Leq _ -> with_polarity (negate_result <> negate_high) high
+    | Eq _ -> with_polarity negate_result (simplify_node v low)
 
 let check_simplification v (atom : Atom.t) (high : positive u)
     (negate_high : bool) (low : positive u) (target : t) : bool =
   if v.Atom.var <> atom.var then false
   else
     match v.desc with
-    | IsTrue -> false
-    | IsLess _ -> Bdd.equal (with_polarity negate_high high) target
-    | IsEqual _ -> Bdd.equal (Bdd (simplify_node v low)) target
+    | Bool -> false
+    | Leq _ -> Bdd.equal (with_polarity negate_high high) target
+    | Eq _ -> Bdd.equal (Bdd (simplify_node v low)) target
 
 (* make_node: Constructs a BDD node, applying simplifications. Given
    the normalizations perform by [ite], [low] is always positive. *)
@@ -445,6 +458,54 @@ module ITE_cache = struct
     if is_neg then cell.neg <- Some res else cell.pos <- Some res
 end
 
+(* Binary cache: stores results of binary operations (AND) for all polarity
+   combinations of (u, v). Key is (|u|, |v|).
+   We store:
+     pp: |u| & |v|
+     pn: |u| & !|v|
+     np: !|u| & |v|
+     nn: !|u| & !|v|
+   This allows deriving 'or' via DeMorgan (!(!a & !b)) from the same cache. *)
+module Binary_cache = struct
+  type cell = {
+    mutable pp : t option;
+    mutable pn : t option;
+    mutable np : t option;
+    mutable nn : t option;
+  }
+
+  let empty_cell () = { pp = None; pn = None; np = None; nn = None }
+
+  module Store = Ephemeron.K2.Make (Positive) (Positive)
+
+  let cache = Store.create 4096
+
+  let find u_pos v_pos u_neg v_neg =
+    match Store.find_opt cache (u_pos, v_pos) with
+    | None -> None
+    | Some c -> (
+        match (u_neg, v_neg) with
+        | false, false -> c.pp
+        | false, true -> c.pn
+        | true, false -> c.np
+        | true, true -> c.nn)
+
+  let add u_pos v_pos u_neg v_neg res =
+    let c =
+      match Store.find_opt cache (u_pos, v_pos) with
+      | Some c -> c
+      | None ->
+          let c = empty_cell () in
+          Store.add cache (u_pos, v_pos) c;
+          c
+    in
+    match (u_neg, v_neg) with
+    | false, false -> c.pp <- Some res
+    | false, true -> c.pn <- Some res
+    | true, false -> c.np <- Some res
+    | true, true -> c.nn <- Some res
+end
+
 (* ite f g h: computes "if f then g else h".
 
    Normalization rules for canonical form:
@@ -501,10 +562,10 @@ type constant_result = Constant of bool | NonConstant
 
 (* Constant_cache: Memoization for ite_constant checks.
    Keys are (f, g, h). Stores constant_result. *)
-module Constant_cache = struct
+module ITE_constant_cache = struct
   module Store = Ephemeron.Kn.Make (Positive)
 
-  let cache = Store.create 4096
+  let cache = Store.create 1024
 
   let find u g w =
     let _, v = split g in
@@ -528,7 +589,7 @@ let rec ite_constant f g h =
         | Bdd _ -> NonConstant)
     | None -> (
         (* Check Constant_cache *)
-        match Constant_cache.find u g w with
+        match ITE_constant_cache.find u g w with
         | Some res -> res
         | None ->
             let v_f = top_atom f in
@@ -551,7 +612,7 @@ let rec ite_constant f g h =
                       if high_val = low_val then Constant high_val
                       else NonConstant)
             in
-            Constant_cache.add u g w res;
+            ITE_constant_cache.add u g w res;
             res)
   in
   match (f, g, h) with
@@ -590,15 +651,15 @@ let rec ite_constant f g h =
 (*** Constructors ***)
 
 let make_atom i = Bdd (Positive.ite i False true False)
-let atom v = make_atom (Atom.make v IsTrue)
-let is_equal v s = make_atom (Atom.make v (IsEqual s))
+let atom v = make_atom (Atom.make v Bool)
+let is_equal v s = make_atom (Atom.make v (Eq s))
 let is_not_equal v s = not (is_equal v s)
 
 let is_lt v ver =
-  make_atom (Atom.make v (IsLess { version = ver; inclusive = false }))
+  make_atom (Atom.make v (Leq { version = ver; inclusive = false }))
 
 let is_le v ver =
-  make_atom (Atom.make v (IsLess { version = ver; inclusive = true }))
+  make_atom (Atom.make v (Leq { version = ver; inclusive = true }))
 
 let is_gt v ver = not (is_le v ver)
 let is_ge v ver = not (is_lt v ver)
@@ -737,103 +798,98 @@ let restrict_impl t max_var eval_atom =
   | Bdd (If _ as u) -> visit u
 
 let restrict t constraints =
+  let intern_constraint c =
+    match c with
+    | Boolean (v, b) -> (v, Atom.Bool, b)
+    | String (v, op, s) -> (v, Eq s, op = `Eq)
+    | Version (v, op, ver) ->
+        let version, polarity =
+          match op with
+          | `Ge -> ({ version = ver; inclusive = false }, false)
+          | `Gt -> ({ version = ver; inclusive = true }, false)
+          | `Le -> ({ version = ver; inclusive = true }, true)
+          | `Lt -> ({ version = ver; inclusive = false }, true)
+        in
+        (v, Leq version, polarity)
+  in
+  let check_boolean _ (_, _, b) = if b then Some true else Some false in
+  let check_string s c =
+    match c with
+    | _, Atom.Eq s', b ->
+        if b then if String.equal s s' then Some true else Some false
+        else if String.equal s s' then Some false
+        else None
+    | _ -> None
+  in
+  let check_version ver c =
+    match c with
+    | _, Atom.Leq ver', b ->
+        if b then
+          if compare_version_bound ver' ver <= 0 then Some true else None
+        else if compare_version_bound ver' ver >= 0 then Some false
+        else None
+    | _ -> None
+  in
   match t with
   | Bdd False -> false_
   | _ -> (
       match constraints with
       | [] -> t
-      | [ Boolean (v, b) ] ->
+      | [ c ] ->
+          let ((v, _, b) as c) = intern_constraint c in
           let b = Some b in
           let eval_atom (atom : Atom.t) =
-            if atom.var = v then match atom.desc with IsTrue -> b | _ -> None
+            if atom.var == v then
+              match atom.desc with
+              | Bool -> b
+              | Eq s -> check_string s c
+              | Leq ver -> check_version ver c
             else None
           in
           restrict_impl t v eval_atom
       | _ when List.compare_length_with constraints 5 <= 0 ->
-          let intern_constraints l =
-            List.map
-              (fun c ->
-                match c with
-                | Boolean (v, b) -> (v, Atom.IsTrue, b)
-                | String (v, op, s) -> (v, IsEqual s, op = `Eq)
-                | Version (v, op, ver) ->
-                    let version, polarity =
-                      match op with
-                      | `Ge -> ({ version = ver; inclusive = false }, false)
-                      | `Gt -> ({ version = ver; inclusive = true }, false)
-                      | `Le -> ({ version = ver; inclusive = true }, true)
-                      | `Lt -> ({ version = ver; inclusive = false }, true)
-                    in
-                    (v, IsLess version, polarity))
-              l
-          in
-          let check_boolean var _ (v', _, b') =
-            if var != v' then None else if b' then Some true else Some false
-          in
-          let check_string v s c =
-            match c with
-            | v', Atom.IsEqual s', b' ->
-                if v != v' then None
-                else if b' then
-                  if String.equal s s' then Some true else Some false
-                else if String.equal s s' then Some false
-                else None
-            | _ -> None
-          in
-          let check_version v ver c =
-            match c with
-            | v', Atom.IsLess ver', b' ->
-                if v != v' then None
-                else if b' then
-                  if compare_version_bound ver' ver <= 0 then Some true
-                  else None
-                else if compare_version_bound ver' ver >= 0 then Some false
-                else None
-            | _ -> None
-          in
           let rec no_contradiction check var value b l =
             match l with
             | [] -> true
-            | c' :: r ->
-                (match check var value c' with
-                  | Some b' -> b = b'
-                  | None -> true)
+            | ((var', _, _) as c') :: r ->
+                (var' <> var
+                || match check value c' with Some b' -> b == b' | None -> true)
                 && no_contradiction check var value b r
           in
           let rec validate_constraints l =
             match l with
             | [] -> true
-            | c :: r ->
+            | (v, desc, b) :: r ->
                 let ok =
-                  match c with
-                  | v, Atom.IsTrue, b -> no_contradiction check_boolean v () b r
-                  | v, IsEqual s, b -> no_contradiction check_string v s b r
-                  | v, IsLess ver, b -> no_contradiction check_version v ver b r
+                  match desc with
+                  | Atom.Bool -> no_contradiction check_boolean v () b r
+                  | Eq s -> no_contradiction check_string v s b r
+                  | Leq ver -> no_contradiction check_version v ver b r
                 in
                 ok && validate_constraints r
           in
-          let lst = intern_constraints constraints in
+          let lst = List.map intern_constraint constraints in
           let valid = validate_constraints lst in
           if Stdlib.not valid then false_
           else
             let max_var =
               List.fold_left (fun acc (var, _, _) -> max acc var) (-1) lst
             in
-            let rec find_map f var value l =
+            let rec find_map check var value l =
               match l with
               | [] -> None
-              | c :: l -> begin
-                  match f var value c with
-                  | Some _ as result -> result
-                  | None -> find_map f var value l
-                end
+              | ((var', _, _) as c) :: r -> (
+                  if var <> var' then find_map check var value r
+                  else
+                    match check value c with
+                    | Some _ as result -> result
+                    | None -> find_map check var value r)
             in
-            let eval_atom (atom : Atom.t) =
-              match atom with
-              | { var; desc = IsTrue; _ } -> find_map check_boolean var () lst
-              | { var; desc = IsEqual s; _ } -> find_map check_string var s lst
-              | { var; desc = IsLess ver; _ } ->
-                  find_map check_version var ver lst
+            let eval_atom ({ var; desc; _ } : Atom.t) =
+              match desc with
+              | Bool -> find_map check_boolean var () lst
+              | Eq s -> find_map check_string var s lst
+              | Leq ver -> find_map check_version var ver lst
             in
             restrict_impl t max_var eval_atom
       | _ -> (
@@ -843,8 +899,8 @@ let restrict t constraints =
           | Some store ->
               let eval_atom (atom : Atom.t) =
                 match atom.desc with
-                | IsTrue -> Constraint_store.find_bool store atom.var
-                | IsEqual s -> (
+                | Bool -> Constraint_store.find_bool store atom.var
+                | Eq s -> (
                     match Constraint_store.find_string_eq store atom.var with
                     | Some s' ->
                         if String.equal s s' then Some true else Some false
@@ -852,7 +908,7 @@ let restrict t constraints =
                         if Constraint_store.check_string_ne store atom.var s
                         then Some false
                         else None)
-                | IsLess atom_bound ->
+                | Leq atom_bound ->
                     (* Check implications from range *)
                     (* Atom is: var < v_atom (if !inc) or var <= v_atom (if inc) *)
                     let implies_true =
@@ -875,8 +931,47 @@ let restrict t constraints =
               in
               restrict_impl t store.max_var eval_atom))
 
-let and_ a b = ite a b false_
-let or_ a b = ite a true_ b
+let rec and_rec u v =
+  match (u, v) with
+  | Bdd (Not False), w | w, Bdd (Not False) -> w
+  | Bdd False, _ | _, Bdd False -> false_
+  | (Bdd (Not u'), Bdd (Not v') | Bdd (If _ as u'), Bdd (If _ as v'))
+    when u' == v' ->
+      u
+  | (Bdd (Not u), Bdd (If _ as v) | Bdd (If _ as u), Bdd (Not v)) when u == v ->
+      false_
+  | u, v -> (
+      (* Canonical ordering: ensure u < v by UID *)
+      let u, v = if Bdd.compare u v < 0 then (u, v) else (v, u) in
+      let u_neg, u_pos = split u in
+      let v_neg, v_pos = split v in
+      match Binary_cache.find u_pos v_pos u_neg v_neg with
+      | Some res -> res
+      | None ->
+          let tu = top_atom u in
+          let tv = top_atom v in
+          let top = Atom.min tu tv in
+          let uh, ul = cofactors top u in
+          let vh, vl = cofactors top v in
+          let h = and_rec uh vh in
+          let l = and_rec ul vl in
+          let res = make_node top h l in
+          Binary_cache.add u_pos v_pos u_neg v_neg res;
+          res)
+
+let and_ = and_rec
+
+let or_ u v =
+  match (u, v) with
+  | Bdd (Not False), _ | _, Bdd (Not False) -> true_
+  | Bdd False, w | w, Bdd False -> w
+  | (Bdd (Not u'), Bdd (Not v') | Bdd (If _ as u'), Bdd (If _ as v'))
+    when u' == v' ->
+      u
+  | (Bdd (Not u), Bdd (If _ as v) | Bdd (If _ as u), Bdd (Not v)) when u == v ->
+      true_
+  | u, v -> not (and_rec (not u) (not v))
+
 let xor a b = ite a (not b) b
 let iff a b = not (xor a b)
 let implies a b = ite a b true_
@@ -908,9 +1003,7 @@ let quantify combine_op (type a) (v : a var) (t : t) : t =
               if atom.var > target_var then with_polarity negate u
               else
                 (* Effective polarity for high branch *)
-                let h_negate =
-                  if negate_high then Stdlib.not negate else negate
-                in
+                let h_negate = negate_high <> negate in
                 let h = visit h_negate high in
                 let l = visit negate low in
                 if atom.var = target_var then
@@ -977,6 +1070,7 @@ let size t =
 (*** Syntax ***)
 
 module Syntax = struct
+  let atom = atom
   let ( && ) = and_
   let ( || ) = or_
   let not = not
@@ -1016,9 +1110,9 @@ let sat (t : t) : atom_constraint list option =
           let constraints = solve high eff_target in
           let c =
             match atom.desc with
-            | Atom.IsTrue -> Boolean (atom.var, true)
-            | Atom.IsEqual s -> String (atom.var, `Eq, s)
-            | Atom.IsLess { version; inclusive } ->
+            | Atom.Bool -> Boolean (atom.var, true)
+            | Atom.Eq s -> String (atom.var, `Eq, s)
+            | Atom.Leq { version; inclusive } ->
                 Version (atom.var, (if inclusive then `Le else `Lt), version)
           in
           c :: constraints
@@ -1026,9 +1120,9 @@ let sat (t : t) : atom_constraint list option =
           let constraints = solve low target in
           let c =
             match atom.desc with
-            | Atom.IsTrue -> Boolean (atom.var, false)
-            | Atom.IsEqual s -> String (atom.var, `Ne, s)
-            | Atom.IsLess { version; inclusive } ->
+            | Atom.Bool -> Boolean (atom.var, false)
+            | Atom.Eq s -> String (atom.var, `Ne, s)
+            | Atom.Leq { version; inclusive } ->
                 Version (atom.var, (if inclusive then `Gt else `Ge), version)
           in
           c :: constraints
@@ -1086,18 +1180,18 @@ let shortest_sat (t : t) : atom_constraint list option =
         then
           let c =
             match atom.desc with
-            | Atom.IsTrue -> Boolean (atom.var, true)
-            | Atom.IsEqual s -> String (atom.var, `Eq, s)
-            | Atom.IsLess { version; inclusive } ->
+            | Atom.Bool -> Boolean (atom.var, true)
+            | Atom.Eq s -> String (atom.var, `Eq, s)
+            | Atom.Leq { version; inclusive } ->
                 Version (atom.var, (if inclusive then `Le else `Lt), version)
           in
           c :: trace high eff_target_high
         else
           let c =
             match atom.desc with
-            | Atom.IsTrue -> Boolean (atom.var, false)
-            | Atom.IsEqual s -> String (atom.var, `Ne, s)
-            | Atom.IsLess { version; inclusive } ->
+            | Atom.Bool -> Boolean (atom.var, false)
+            | Atom.Eq s -> String (atom.var, `Ne, s)
+            | Atom.Leq { version; inclusive } ->
                 Version (atom.var, (if inclusive then `Gt else `Ge), version)
           in
           c :: trace low target
@@ -1106,3 +1200,33 @@ let shortest_sat (t : t) : atom_constraint list option =
   | Bdd False -> None
   | Bdd (Not u) -> Some (trace u false)
   | Bdd (If _ as u) -> Some (trace u true)
+
+let print_stats () =
+  Printf.printf "Cache Statistics:\n";
+  let print_ephemeron name stats alive =
+    Printf.printf "  %s:\n" name;
+    Printf.printf "    Bindings: %d (Alive: %d)\n" stats.Hashtbl.num_bindings
+      alive.Hashtbl.num_bindings;
+    Printf.printf "    Buckets : %d\n" stats.Hashtbl.num_buckets;
+    Printf.printf "    Max Len : %d\n" stats.Hashtbl.max_bucket_length
+  in
+  let print_weak name (len, entries, _, _, _, _) =
+    Printf.printf "  %s:\n" name;
+    Printf.printf "    Entries : %d\n" entries;
+    Printf.printf "    Length  : %d\n" len
+  in
+  print_weak "Atom Hashcons" (Atom.WeakTbl.stats Atom.atom_tbl);
+  print_weak "Positive Node Hashcons" (Positive.WeakTbl.stats Positive.weak_tbl);
+  print_ephemeron "Simplify Cache"
+    (Simplify_cache.Table.stats Simplify_cache.cache)
+    (Simplify_cache.Table.stats_alive Simplify_cache.cache);
+  print_ephemeron "ITE Constant Cache"
+    (ITE_constant_cache.Store.stats ITE_constant_cache.cache)
+    (ITE_constant_cache.Store.stats_alive ITE_constant_cache.cache);
+  print_ephemeron "ITE Cache"
+    (ITE_cache.Store.stats ITE_cache.cache)
+    (ITE_cache.Store.stats_alive ITE_cache.cache);
+  print_ephemeron "Binary Cache"
+    (Binary_cache.Store.stats Binary_cache.cache)
+    (Binary_cache.Store.stats_alive Binary_cache.cache);
+  flush stdout

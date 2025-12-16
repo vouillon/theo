@@ -97,5 +97,7 @@ Testing quantifier operations...
   forall b. forall c. (b || c) = false: OK
   exists s. (s = "foo") = true: OK
   exists s. (s = "foo" && s = "bar") = false: OK
+Running restrict validation tests...
+  restrict validation: OK
 
-=== All 17 test suites passed! ===
+=== All 18 test suites passed! ===

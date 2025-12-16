@@ -3,7 +3,7 @@ open Theo.Syntax
 
 let () =
   Printf.printf "Running Recursion Necessity Test...\\n";
-  let v = new_var String in
+  let v = var String in
 
   let is_a = is_equal v "A" in
   let is_b = is_equal v "B" in

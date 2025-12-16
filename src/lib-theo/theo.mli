@@ -17,8 +17,8 @@
     {b Example usage:}
     {[
       let open Theo.Syntax in
-      let b1 = Theo.new_var Boolean in
-      let b2 = Theo.new_var Boolean in
+      let b1 = Theo.var Boolean in
+      let b2 = Theo.var Boolean in
       let expr = Theo.atom b1 && not (Theo.atom b2) in
       if Theo.is_tautology expr then Printf.printf "Always true\n"
       else Printf.printf "Depends on variables\n"
@@ -52,15 +52,15 @@ type atom_constraint =
 
 (** {1 Variable Creation} *)
 
-val new_var : 'kind kind -> 'kind var
-(** [new_var kind] creates a fresh variable of the specified kind. Each call
-    returns a unique variable.
+val var : 'kind kind -> 'kind var
+(** [var kind] creates a fresh variable of the specified kind. Each call returns
+    a unique variable.
 
     Example:
     {[
-      let b = new_var Boolean in
-      let s = new_var String in
-      let v = new_var Version in
+      let b = var Boolean in
+      let s = var String in
+      let v = var Version in
     ]} *)
 
 (** {1 Atomic Formulas} *)
@@ -168,6 +168,7 @@ val ite : t -> t -> t -> t
 (** Syntax for convenient infix operators. Open locally with
     [let open Theo.Syntax in ...] *)
 module Syntax : sig
+  val atom : bool var -> t
   val ( && ) : t -> t -> t
   val ( || ) : t -> t -> t
   val not : t -> t
@@ -213,6 +214,24 @@ val equivalent : t -> t -> bool
 (** [equivalent a b] checks if [a] and [b] are structurally identical. Due to
     hash-consing, structurally identical BDDs represent the same logical
     function.
+
+    Complexity: O(1) *)
+
+val equal : t -> t -> bool
+(** [equal a b] checks if [a] and [b] are physically equal. Since hash-consing
+    guarantees unique representation, this is equivalent to logical equality.
+    Same as [equivalent].
+
+    Complexity: O(1) *)
+
+val compare : t -> t -> int
+(** [compare a b] compares the unique identifiers of [a] and [b]. defines a
+    total ordering suitable for [Set] and [Map].
+
+    Complexity: O(1) *)
+
+val hash : t -> int
+(** [hash a] returns the unique identifier of [a]. Suitable for [Hashtbl].
 
     Complexity: O(1) *)
 
@@ -291,12 +310,14 @@ val shortest_sat : t -> atom_constraint list option
 
 val and_list : t list -> t
 (** [and_list exprs] computes the conjunction of all expressions in [exprs].
-    Returns [true_] for an empty list. More efficient than folding [and_]
-    manually due to better cache utilization.
+    Returns [true_] for an empty list. Uses a divide-and-conquer strategy to
+    minimize intermediate BDD sizes and maximize cache reuse.
 
     Example: [let expr = and_list [e1; e2; e3]]
 
-    Complexity: O(Σ|eᵢ|²) *)
+    Complexity: In the worst case, combining N BDDs of size S can result in
+    exponential growth O(S^N). However, for many practical constraint problems,
+    the divide-and-conquer approach yields typically O(S log N) performance. *)
 
 val or_list : t list -> t
 (** [or_list exprs] computes the disjunction of all expressions in [exprs].
@@ -304,7 +325,7 @@ val or_list : t list -> t
 
     Example: [let expr = or_list [e1; e2; e3]]
 
-    Complexity: O(Σ|eᵢ|²) *)
+    Complexity: Worst case O(S^N), typically O(S log N). *)
 
 (** {1 Debugging} *)
 
@@ -315,3 +336,8 @@ val to_string : t -> string
 val print_dot : out_channel -> t -> unit
 (** [print_dot chan expr] prints the BDD in Graphviz DOT format to the given
     channel. *)
+
+val print_stats : unit -> unit
+(** [print_stats ()] prints statistics for all internal caches (atom table, node
+    table, operation caches) to stdout. Useful for debugging and performance
+    analysis. *)
