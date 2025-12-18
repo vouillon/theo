@@ -1,13 +1,14 @@
-open Theo
-open Theo.Syntax
+open Theories
+open Formula
+open Formula.Syntax
 
 let () =
   Printf.printf "Running Recursion Necessity Test...\\n";
-  let v = new_var String in
+  let v = Theo.Var.fresh () in
 
-  let is_a = is_equal v "A" in
-  let is_b = is_equal v "B" in
-  let is_c = is_equal v "C" in
+  let is_a = StringSyntax.eq v "A" in
+  let is_b = StringSyntax.eq v "B" in
+  let is_c = StringSyntax.eq v "C" in
 
   (* Cases:
      1. x="A" \/ (x!="B" && x!="C")

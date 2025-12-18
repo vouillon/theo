@@ -1,12 +1,13 @@
-open Theo
-open Theo.Syntax
+open Theories
+open Formula
+open Formula.Syntax
 
 let assert_bool b msg = if Stdlib.not b then failwith ("FAIL: " ^ msg)
 
 let test_logical_checks () =
   Printf.printf "Test logical checks...\n";
-  let a = atom (new_var Boolean) in
-  let b = atom (new_var Boolean) in
+  let a = bool (Theo.Var.fresh ()) in
+  let b = bool (Theo.Var.fresh ()) in
 
   (* logical_implies *)
   assert_bool (logical_implies (a && b) a) "a&b => a";

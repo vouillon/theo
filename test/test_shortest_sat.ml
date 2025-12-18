@@ -1,5 +1,6 @@
-open Theo
-open Theo.Syntax
+open Theories
+open Formula
+open Formula.Syntax
 
 let assert_equal_int i1 i2 msg =
   if i1 <> i2 then (
@@ -13,10 +14,10 @@ let test_shortest_sat () =
      Greedy 'sat' might pick d'=T or (a'=T... depending on order).
      Shortest should be length 1 (d'=T).
   *)
-  let d' = atom (new_var Boolean) in
-  let a' = atom (new_var Boolean) in
-  let b' = atom (new_var Boolean) in
-  let c' = atom (new_var Boolean) in
+  let d' = bool (Theo.Var.fresh ()) in
+  let a' = bool (Theo.Var.fresh ()) in
+  let b' = bool (Theo.Var.fresh ()) in
+  let c' = bool (Theo.Var.fresh ()) in
 
   let expr1 = (a' && b' && c') || d' in
 
@@ -52,11 +53,11 @@ let test_shortest_sat () =
      'sat' usually prefers High, so it picks x0=T, x1=T... (Length 4).
      'shortest_sat' should pick x0=F, y1=T (Length 2).
   *)
-  let x0 = atom (new_var Boolean) in
-  let x1 = atom (new_var Boolean) in
-  let x2 = atom (new_var Boolean) in
-  let x3 = atom (new_var Boolean) in
-  let y1 = atom (new_var Boolean) in
+  let x0 = bool (Theo.Var.fresh ()) in
+  let x1 = bool (Theo.Var.fresh ()) in
+  let x2 = bool (Theo.Var.fresh ()) in
+  let x3 = bool (Theo.Var.fresh ()) in
+  let y1 = bool (Theo.Var.fresh ()) in
 
   let long_path = x0 && x1 && x2 && x3 in
   let short_path = (not x0) && y1 in

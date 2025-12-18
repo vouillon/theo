@@ -11,9 +11,9 @@ Testing batch operations...
 Testing debugging operations...
   to_string(true_) = ⊤
   to_string(atom) = 
-If($6, ⊤, ⊥)
+$6
   to_string(and) = 
-If($6, If($7 = "hello", ⊤, ⊥), ⊥)
+$6 ∧ $7 = "hello"
 Testing logical operations...
   AND with constants: OK
   OR with constants: OK
@@ -48,10 +48,10 @@ Testing variable ordering impact...
   Variable ordering check: OK (Expr size: 5)
 Testing DOT output...
 digraph G {
-  58 [label="$28"];
-  58 -> -1 [style=solid];
+  55 [label="$27"];
+  55 -> -1 [style=solid];
   -1 [label="⊤", shape=box];
-  58 -> 0 [style=solid];
+  55 -> 0 [style=solid];
   0 [label="⊥", shape=box];
 }
 digraph G {
@@ -97,5 +97,7 @@ Testing quantifier operations...
   forall b. forall c. (b || c) = false: OK
   exists s. (s = "foo") = true: OK
   exists s. (s = "foo" && s = "bar") = false: OK
+Running restrict validation tests...
+  restrict validation: OK
 
-=== All 17 test suites passed! ===
+=== All 18 test suites passed! ===

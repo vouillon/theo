@@ -1,27 +1,11 @@
-(test
- (name test_operations)
- (libraries theo))
-
-(test
- (name test_ite_constant)
- (libraries theo))
-
-(test
- (name test_shortest_sat)
- (libraries theo))
-
-(test
- (name test_logical_checks)
- (libraries theo))
-
-(test
- (name repro_recursion)
- (libraries theo))
-
-(test
- (name test_properties)
- (libraries qcheck theo))
-
-(test
- (name test_benchmark)
- (libraries theo))
+(tests
+ (names
+  test_operations
+  test_ite_constant
+  test_shortest_sat
+  test_logical_checks
+  repro_recursion
+  test_properties
+  test_benchmark
+  test_performance)
+ (libraries theo qcheck unix))
