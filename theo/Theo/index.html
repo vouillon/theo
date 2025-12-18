@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Theo (theo.Theo)</title><meta charset="utf-8"/><link rel="stylesheet" href="../../odoc.support/odoc.css"/><meta name="generator" content="odoc 3.1.0"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><script src="../../odoc.support/highlight.pack.js"></script><script>hljs.initHighlightingOnLoad();</script></head><body class="odoc"><nav class="odoc-nav"><a href="../index.html">Up</a> – <a href="../../index.html">Index</a> &#x00BB; <a href="../index.html">theo</a> &#x00BB; Theo</nav><header class="odoc-preamble"><h1>Module <code><span>Theo</span></code></h1><p>Theory-Augmented Binary Decision Diagrams (BDDs)</p><p>This module provides an efficient implementation of Binary Decision Diagrams with support for theory reasoning over linear orders and equality (including booleans, strings, integers, semantic versions).</p><p>BDDs are canonical representations of boolean functions that enable efficient logical operations and satisfiability checking through hash-consing and memoization.</p><p><b>Features:</b></p><ul><li>Automatic node sharing via hash-consing</li><li>Memoized operations for performance</li><li>Theory atoms: boolean tests, string equality, version comparisons</li><li>Type-safe variable system using GADTs</li></ul><p><b>Example usage:</b></p><pre class="language-ocaml"><code>  module Theo = Theo.Make(Theo.Void)
+  let open Theo.Syntax in
+  let b1 = Theo.var Boolean in
+  let b2 = Theo.var Boolean in
+  let expr = Theo.atom b1 &amp;&amp; not (Theo.atom b2) in
+  if Theo.is_tautology expr then Printf.printf &quot;Always true\n&quot;
+  else Printf.printf &quot;Depends on variables\n&quot;</code></pre><p><b>Architecture:</b> The library is built around a few core concepts:</p><ul><li><code>Make</code>: The core BDD engine. It takes a <code>Theory</code> as input and produces a BDD module.</li><li><code>Theory</code>: An interface for values that can be part of the BDD (e.g., integers, strings).</li><li><code>Combine</code>: A functor to combine two theories into one (sum type).</li><li><code>Primitive_theory</code>: Standard theories like <code>Leq</code> (linear order) and <code>Eq</code> (equality).</li></ul><p><b>Example: Combining Theories</b> To use multiple theories (e.g., String equality and Version comparisons) in the same BDD:</p><pre class="language-ocaml"><code>  (* 1. Define your atomic types *)
+  module StringAtom = struct ... end (* implements Comparable *)
+  module VersionAtom = struct ... end (* implements Comparable *)
+
+  (* 2. Instantiate primitive theories *)
+  module StringEq = Theo.Eq(StringAtom)
+  module VersionLeq = Theo.Leq(VersionAtom)
+
+  (* 3. Combine them into a single theory *)
+  module MyTheory = Theo.Combine(VersionLeq)(StringEq)
+
+  (* 4. Create the BDD module *)
+  module MyBDD = Theo.Make(MyTheory)
+
+  (* 5. Instantiate syntax helpers for convenient construction *)
+  (* Notice we pass parts of the sum theory to the helpers *)
+  module V = VersionLeq.Syntax(MyTheory.Left(MyBDD))
+  module S = StringEq.Syntax(MyTheory.Right(MyBDD))
+
+  (* 6. Now you can mix them! *)
+  let v_var = MyBDD.var ()
+  let s_var = MyBDD.var ()
+  let expr = MyBDD.and_ V.(v_var &lt; v) S.(s_var = s)</code></pre><p><b>Example: Working with Constraints</b> You can also use the syntax modules to build <code>restrict</code> constraints, and pattern match on constraints using <code>view_constraint</code>.</p><pre class="language-ocaml"><code>  (* 1. Build constraint syntax helpers *)
+  (* Instead of MyBDD, we pass MyBDD.Constraint to the syntax functors *)
+  module V_cstr = VersionLeq.Syntax (MyTheory.Left (MyBDD.Constraint))
+  module S_cstr = StringEq.Syntax (MyTheory.Right (MyBDD.Constraint))
+
+  (* 2. Create constraints *)
+  (* Note: These return atomic_constraint list, NOT a BDD *)
+  let c1 = V_cstr.(v_var &lt; v)
+  let c2 = S_cstr.(s_var = s)
+
+  (* 3. Combine constraints *)
+  let constraints = MyBDD.Constraint.and_ c1 c2
+
+  (* 4. Restrict a BDD *)
+  let restricted_expr = MyBDD.restrict expr constraints
+
+  (* 5. Introspection (Pattern Matching) *)
+  let match_constraint (c : MyBDD.atomic_constraint) =
+    match MyBDD.view_constraint c with
+    | MyBDD.Constraint { var; payload = Bool; value } -&gt;
+        Printf.printf &quot;Bool var %d = %b&quot; var value
+    | MyBDD.Constraint { var; payload = Theory desc; value } -&gt; (
+        (* 'desc' is a 'desc MyTheory.t' (the sum type) *)
+        match desc with
+        | MyTheory.Left (VersionLeq.Bound { limit; inclusive }) -&gt;
+            Printf.printf &quot;Version &lt;= %s is %b&quot;
+              (VersionAtom.to_string limit)
+              value
+        | MyTheory.Right (StringEq.Const s) -&gt;
+            Printf.printf &quot;String = %s is %b&quot; (StringAtom.to_string s) value
+        )</code></pre></header><div class="odoc-tocs"><nav class="odoc-toc odoc-local-toc"><ul><li><a href="#variables">Variables</a></li><li><a href="#the-core-bdd-engine">The Core BDD Engine</a></li><li><a href="#theory-composition">Theory Composition</a></li><li><a href="#primitive-theories">Primitive theories</a></li></ul></nav></div><div class="odoc-content"><div class="odoc-spec"><div class="spec module-type anchored" id="module-type-Theory"><a href="#module-type-Theory" class="anchor"></a><code><span><span class="keyword">module</span> <span class="keyword">type</span> <a href="module-type-Theory/index.html">Theory</a></span><span> = <span class="keyword">sig</span> ... <span class="keyword">end</span></span></code></div><div class="spec-doc"><p>The interface for theory atoms.</p></div></div><h2 id="variables"><a href="#variables" class="anchor"></a>Variables</h2><div class="odoc-spec"><div class="spec module anchored" id="module-Var"><a href="#module-Var" class="anchor"></a><code><span><span class="keyword">module</span> <a href="Var/index.html">Var</a></span><span> : <span class="keyword">sig</span> ... <span class="keyword">end</span></span></code></div><div class="spec-doc"><p>Global unique variables.</p></div></div><h2 id="the-core-bdd-engine"><a href="#the-core-bdd-engine" class="anchor"></a>The Core BDD Engine</h2><div class="odoc-spec"><div class="spec module anchored" id="module-Make"><a href="#module-Make" class="anchor"></a><code><span><span class="keyword">module</span> <a href="Make/index.html">Make</a></span><span> (<a href="Make/argument-1-T/index.html">T</a> : <a href="module-type-Theory/index.html">Theory</a>) : <span class="keyword">sig</span> ... <span class="keyword">end</span></span></code></div><div class="spec-doc"><p>Functor to create a BDD implementation for a specific theory.</p></div></div><div class="odoc-spec"><div class="spec module-type anchored" id="module-type-Formula"><a href="#module-type-Formula" class="anchor"></a><code><span><span class="keyword">module</span> <span class="keyword">type</span> <a href="module-type-Formula/index.html">Formula</a></span><span> = <span class="keyword">sig</span> ... <span class="keyword">end</span></span></code></div><div class="spec-doc"><p>The abstract interface for &quot;formulas&quot;. This abstraction allows syntax helpers (like <code>Leq.Syntax</code>) to be reused with any BDD implementation that contains the appropriate theory.</p></div></div><h2 id="theory-composition"><a href="#theory-composition" class="anchor"></a>Theory Composition</h2><div class="odoc-spec"><div class="spec module anchored" id="module-Combine"><a href="#module-Combine" class="anchor"></a><code><span><span class="keyword">module</span> <a href="Combine/index.html">Combine</a></span><span> (<a href="Combine/argument-1-A/index.html">A</a> : <a href="module-type-Theory/index.html">Theory</a>) (<a href="Combine/argument-2-B/index.html">B</a> : <a href="module-type-Theory/index.html">Theory</a>) : <span class="keyword">sig</span> ... <span class="keyword">end</span></span></code></div><div class="spec-doc"><p><code>Combine(A)(B)</code> creates a new theory that is the sum of <code>A</code> and <code>B</code>. This allows a single BDD to reason about multiple types of atoms simultaneously.</p></div></div><div class="odoc-spec"><div class="spec module anchored" id="module-Void"><a href="#module-Void" class="anchor"></a><code><span><span class="keyword">module</span> <a href="Void/index.html">Void</a></span><span> : <a href="module-type-Theory/index.html">Theory</a></span></code></div><div class="spec-doc"><p>An empty theory.</p></div></div><h2 id="primitive-theories"><a href="#primitive-theories" class="anchor"></a>Primitive theories</h2><div class="odoc-spec"><div class="spec module-type anchored" id="module-type-Comparable"><a href="#module-type-Comparable" class="anchor"></a><code><span><span class="keyword">module</span> <span class="keyword">type</span> <a href="module-type-Comparable/index.html">Comparable</a></span><span> = <span class="keyword">sig</span> ... <span class="keyword">end</span></span></code></div><div class="spec-doc"><p>Input signature for primitive theories.</p></div></div><div class="odoc-spec"><div class="spec module-type anchored" id="module-type-Primitive_theory"><a href="#module-type-Primitive_theory" class="anchor"></a><code><span><span class="keyword">module</span> <span class="keyword">type</span> <a href="module-type-Primitive_theory/index.html">Primitive_theory</a></span><span> = <span class="keyword">sig</span> ... <span class="keyword">end</span></span></code></div><div class="spec-doc"><p>Augmented theory interface for primitive theories.</p></div></div><div class="odoc-spec"><div class="spec module anchored" id="module-Leq"><a href="#module-Leq" class="anchor"></a><code><span><span class="keyword">module</span> <a href="Leq/index.html">Leq</a></span><span> (<a href="Leq/argument-1-C/index.html">C</a> : <a href="module-type-Comparable/index.html">Comparable</a>) : <span class="keyword">sig</span> ... <span class="keyword">end</span></span></code></div><div class="spec-doc"><p>The theory of linear order (&lt;=, &lt;, =, &lt;&gt;).</p></div></div><div class="odoc-spec"><div class="spec module anchored" id="module-Eq"><a href="#module-Eq" class="anchor"></a><code><span><span class="keyword">module</span> <a href="Eq/index.html">Eq</a></span><span> (<a href="Eq/argument-1-C/index.html">C</a> : <a href="module-type-Comparable/index.html">Comparable</a>) : <span class="keyword">sig</span> ... <span class="keyword">end</span></span></code></div><div class="spec-doc"><p>The theory of equality (=, &lt;&gt;).</p></div></div></div></body></html>
