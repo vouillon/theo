@@ -2,6 +2,10 @@
 
 Theo is a high-performance **Binary Decision Diagram (BDD)** library for OCaml. It provides efficient boolean logic manipulation with support for theory reasoning over **linear orders and equality** (including booleans, strings, integers, and semantic versions).
 
+## Documentation
+
+The API documentation is available online at: [https://vouillon.github.io/theo/theo/Theo/](https://vouillon.github.io/theo/theo/Theo/)
+
 ## Features
 
 *   **Generic Theory Support**: Create BDDs for any domain by implementing the `Theory` interface.
