@@ -324,12 +324,40 @@ module type Theory = sig
 end
 ```
 
-The BDD engine is parameterized by a theory via the `Make` functor:
-`Make(Void)` gives you standard boolean BDDs, while `Make(Leq(Version))` gives
-you BDDs that understand version comparisons.
+The BDD engine is parameterized by a theory via the `Make` functor.
+Theo provides three building blocks:
 
-Internally, atoms are tagged with a **category** that tells the engine which
-simplification rules apply:
+- **`Void`** is the trivial theory — `type _ t = unit`. It carries no
+  descriptors, so `Make(Void)` gives you a pure boolean BDD.
+
+- **`Leq(C)`** takes a comparable type and builds a theory for **linear orders**.
+  Each descriptor is a `Bound { limit; inclusive }`, representing `< limit` or
+  `<= limit`. Bounds are ordered by limit value, which is what enables the
+  pruning optimizations described later.
+
+- **`Eq(C)`** builds a theory for **equality**. Each descriptor is a
+  `Const value`, representing `= value`.
+
+To mix theories in the same BDD, **`Combine(A)(B)`** merges two theories into a
+sum type:
+
+```ocaml
+type 'a t = Left : 'a A.t -> 'a t | Right : 'a B.t -> 'a t
+```
+
+Since the output of `Combine` is itself a `Theory`, it can be nested:
+`Combine(Combine(A)(B))(C)` composes three theories. A typical setup for a
+package manager:
+
+```ocaml
+module VersionLeq = Leq(Version)
+module StringEq   = Eq(String)
+module MyTheory   = Combine(VersionLeq)(StringEq)
+module MyBDD      = Make(MyTheory)
+```
+
+Each theory maps to a **category** that tells the engine which simplification
+rules apply:
 
 ```ocaml
 type _ category = Bool | Leq | Eq
