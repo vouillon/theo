@@ -554,6 +554,10 @@ operator instead of creating a decision node. For theory variables, this
 eliminates all atoms mentioning that variable — not just a single boolean test,
 but every bound or equality constraint on it.
 
+Consider `(x AND y) OR (NOT x AND z)`. eliminate `x` (`exists x`), and you get
+`y OR z`. The variable `x` is gone, and the formula now represents "conditions
+under which *some* value of `x` satisfied the original formula."
+
 ### Contextual simplification
 
 While `prune` works locally during construction, we sometimes need to simplify an
