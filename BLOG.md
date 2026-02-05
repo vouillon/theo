@@ -311,8 +311,27 @@ semantics to simplify formulas during construction.
 
 ### Atoms with meaning
 
-At the type level, a theory is a module implementing comparison, hashing, and
-pretty-printing for atom descriptors:
+The engine classifies theory predicates into three **categories**, each with
+different simplification rules:
+
+```ocaml
+type _ category = Bool | Leq | Eq
+```
+
+- **Bool**: plain boolean variables. No theory reasoning.
+- **Leq**: linear order bounds (`< limit` or `<= limit`). The engine knows that
+  a tighter bound implies a weaker one.
+- **Eq**: equality constants (`= value`). The engine knows that equality with
+  one value falsifies equality with any other.
+
+A crucial design choice is **atom ordering**: atoms are sorted first by variable,
+then by payload. For `Leq` atoms, this means all bounds for the same variable
+are clustered together and sorted by their bound value. The engine encounters
+tighter bounds before weaker ones, which is what makes the pruning described in
+the next section possible.
+
+**The OCaml encoding.** At the type level, a theory is a module implementing
+comparison, hashing, and pretty-printing for atom descriptors:
 
 ```ocaml
 module type Theory = sig
@@ -332,8 +351,7 @@ Theo provides three building blocks:
 
 - **`Leq(C)`** takes a comparable type and builds a theory for **linear orders**.
   Each descriptor is a `Bound { limit; inclusive }`, representing `< limit` or
-  `<= limit`. Bounds are ordered by limit value, which is what enables the
-  pruning optimizations described later.
+  `<= limit`.
 
 - **`Eq(C)`** builds a theory for **equality**. Each descriptor is a
   `Const value`, representing `= value`.
@@ -356,14 +374,7 @@ module MyTheory   = Combine(VersionLeq)(StringEq)
 module MyBDD      = Make(MyTheory)
 ```
 
-Each theory maps to a **category** that tells the engine which simplification
-rules apply:
-
-```ocaml
-type _ category = Bool | Leq | Eq
-```
-
-An atom combines a variable, a category, and a payload:
+Internally, an atom combines a variable, a category, and a payload:
 
 ```ocaml
 type atom = Atom : {
@@ -383,11 +394,6 @@ pattern that lets a single `atom` type hold heterogeneous payloads (boolean
 flags, version bounds, string constants) while ensuring at the type level that
 a version variable never receives a string payload. The `view_constraint`
 function later unpacks the existential for pattern matching.
-
-A crucial design choice is **atom ordering**: atoms are sorted first by variable,
-then by payload. For `Leq` atoms, this means all bounds for the same variable
-are clustered together and sorted by their bound value. This ordering is what
-makes theory simplification possible during BDD construction.
 
 ### Pruning what you already know
 
@@ -521,6 +527,11 @@ assert (F.equivalent (lt_4_14 && lt_5_0) lt_4_14)
 ```
 
 ### One syntax, two interpretations
+
+The previous sections described what the engine does with theory atoms — how it
+prunes, simplifies, and combines them. This section is about the user-facing
+API: how OCaml's module system lets the same syntax code serve two different
+purposes.
 
 Theo provides syntax modules that let you write constraints naturally:
 
