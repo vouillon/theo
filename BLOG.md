@@ -185,8 +185,10 @@ This representation also has a consequence for the ITE algorithm: `ite`
 normalizes its arguments before recursing — if `f` is negative, swap `g` and
 `h`; if `h` is negative, negate the result and recurse with `not g`. This
 doesn't affect canonicity (which is guaranteed by hash-consing and the node
-invariants), but it ensures that equivalent calls always use the same argument
-form, maximizing cache hit rates.
+invariants), but it collapses multiple argument triples that represent the same
+logical computation into a single canonical form. Without normalization,
+`ite(not f, g, h)` and `ite(f, h, g)` would occupy separate cache entries
+despite computing the same thing. With it, they resolve to the same lookup.
 
 ## Same formula, same pointer
 
@@ -414,9 +416,13 @@ its high branch (the case where `ocaml < 5.0` holds). This is the line
 `Leq -> with_polarity (negate_result <> negate_high) high`.
 
 For the `Eq` category: if we know `name = "foo"`, then any node testing
-`name = "bar"` is resolved to false (take the low branch). The `simplify_node`
-function walks through consecutive atoms of the same variable in the low branch,
-skipping them since they are all falsified by the equality constraint.
+`name = "bar"` is resolved to false (take the low branch). But there might be
+several such nodes in sequence — `name = "bar"`, then `name = "baz"`, then
+`name = "qux"` — all for the same variable, all falsified by the equality
+constraint. The `simplify_node` function follows the chain of low branches,
+skipping every atom on the same variable, until it reaches a node for a
+different variable (or a terminal). This collapses an entire sequence of
+equality tests into a single step.
 
 The `make_node` function, which constructs the actual BDD node, applies the
 dual check. `prune` simplifies *during cofactor decomposition* (top-down);
@@ -437,10 +443,12 @@ let make_node atom high low =
     ...
 ```
 
-For instance, if we try to build a node testing `ocaml < 5.0` with high = True
-and low = `ocaml < 4.14`, `check_simplification` recognizes that the tighter
-bound `ocaml < 4.14` already handles the `ocaml < 5.0` case. The `ocaml < 5.0`
-node would be redundant, so `make_node` returns the low branch unchanged.
+For instance, suppose we try to build a node testing `ocaml < 4.14` with
+high = True and low = the BDD for `ocaml < 5.0`. Since `ocaml < 4.14` implies
+`ocaml < 5.0`, the high branch (True) matches what simplifying the low branch
+under that assumption would produce. The `ocaml < 4.14` test is redundant — the
+weaker bound `ocaml < 5.0` already captures the behavior — so `make_node`
+returns the low branch unchanged.
 
 **A concrete example.** Consider computing `ocaml < 4.14 AND ocaml < 5.0`.
 Without theory awareness, the AND would produce a two-node BDD. With it, the
@@ -690,9 +698,12 @@ tends to produce unbalanced intermediate trees that can grow unnecessarily large
 
 Theo employs a **balanced reduction** strategy for n-ary operations. It first
 sorts the input BDDs by their top variable — a simple heuristic that groups
-formulas likely to share structure. It then combines them using a tree-like
-reduction (pairwise combination) rather than a linear fold. This minimizes the
-size of intermediate results and maximizes cache hit rates.
+formulas likely to share structure. Why does this help? BDDs that share the same
+top atom will have matching cofactor decompositions during pairwise combination,
+so the ITE algorithm hits the cache more often instead of recomputing. After
+sorting, it combines them using a tree-like reduction (pairwise combination)
+rather than a linear fold. This minimizes the size of intermediate results and
+further improves cache utilization.
 
 ## The whole is more than the sum of its parts
 
