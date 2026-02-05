@@ -37,6 +37,24 @@ obtained by two reductions:
 2. **Eliminate redundant tests.** If a node's low and high children are the same
    subtree, skip the test entirely.
 
+Here is `a OR b` going through both reductions:
+
+```
+Decision tree:          Merge subtrees:        Eliminate redundant b:
+
+       a                      a                       a
+      / \                    / \                     / \
+     b   b        →         b   1          →        b   1
+    / \ / \                / \                     / \
+   0  1 1  1              0   1                   0   1
+
+ 6 nodes, 4 leaves.    4 nodes, 2 leaves.      3 nodes, 2 leaves.
+```
+
+The right `b` tested a variable but both branches led to `1` — a redundant test,
+eliminated. The two `1` leaves and two `0` leaves merged into one each. Six nodes
+became three.
+
 When you additionally fix a **variable ordering** (every path from root to leaf
 tests variables in the same order), the result is called a Reduced Ordered BDD
 (ROBDD). The key theorem is that ROBDDs are **canonical**: for a given variable
@@ -399,7 +417,21 @@ complementary check: after building the high and low branches, if theory
 simplification would make the result equal to the low branch, the new node is
 redundant and is eliminated.
 
-**A concrete example.** Consider computing `ocaml < 4.14 AND ocaml < 5.0`:
+**A concrete example.** Consider computing `ocaml < 4.14 AND ocaml < 5.0`.
+Without theory awareness, the AND would produce a two-node BDD. With it, the
+engine recognizes the redundancy and collapses it:
+
+```
+ocaml<4.14    AND    ocaml<5.0           ocaml<4.14
+
+ ocaml<4.14          ocaml<5.0            ocaml<4.14
+    / \                 / \        →         / \
+   F  ~F               F  ~F                F  ~F
+
+                                   Two nodes in, one node out.
+```
+
+Here is the step-by-step:
 
 1. The atoms are ordered: `ocaml < 4.14` comes before `ocaml < 5.0` (smaller
    bound).
@@ -552,6 +584,22 @@ a satisfying terminal, then a traceback follows the optimal choices. Because
 identical subgraphs are shared (hash-consing), each node is visited at most
 once. The result is not just any witness, but the minimal one — the shortest
 path through the decision graph.
+
+Consider a BDD for `(a AND b) OR c`. A depth-first search might return
+`{a=true, b=true}` (two decisions). But the shortest path finds `{c=true}`
+(one decision):
+
+```
+          a
+         / \
+        c   b
+       / \ / \
+      F  ~F  ~F         Shortest satisfying path: a=false, c=true.
+                         Just one decision: {c=true}.
+
+                         DFS would find: a=true, b=true.
+                         Two decisions — valid, but not minimal.
+```
 
 ## Zero-allocation queries
 
