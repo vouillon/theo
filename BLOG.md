@@ -388,7 +388,13 @@ let cofactors v (t : t) =
 
 When the top atom of the BDD doesn't directly match the decomposition atom, but
 they share the same variable, the `prune` function applies theory-specific
-simplification:
+simplification. Notice the asymmetry in the return value: only the high cofactor
+is simplified, while the low cofactor is just `t` unchanged. This is because the
+decomposition atom has a tighter bound (it comes first in the ordering), so when
+it's true it implies the BDD's top atom — but when it's false, the top atom is
+still undecided, and the BDD stays as is.
+
+The `prune` function:
 
 ```ocaml
 let prune (Atom a) (u : positive u) (Atom atom) high
@@ -412,10 +418,29 @@ For the `Eq` category: if we know `name = "foo"`, then any node testing
 function walks through consecutive atoms of the same variable in the low branch,
 skipping them since they are all falsified by the equality constraint.
 
-The `make_node` function, which constructs the actual BDD node, applies a
-complementary check: after building the high and low branches, if theory
-simplification would make the result equal to the low branch, the new node is
-redundant and is eliminated.
+The `make_node` function, which constructs the actual BDD node, applies the
+dual check. `prune` simplifies *during cofactor decomposition* (top-down);
+`make_node` checks *during node construction* (bottom-up). After computing the
+high and low branches, it asks: "if this atom were true, would theory
+simplification reduce the low branch to equal the high branch?" If so, the new
+node is redundant and is eliminated — returning the low branch directly:
+
+```ocaml
+let make_node atom high low =
+  if equal high low then high
+  else
+    match low with
+    | Bdd (If { atom = l_atom; high = l_high; negate_high; low = l_low; _ }) ->
+        if check_simplification atom l_atom l_high negate_high l_low high
+        then low  (* redundant: theory says high = simplified low *)
+        else ...  (* construct the node normally *)
+    ...
+```
+
+For instance, if we try to build a node testing `ocaml < 5.0` with high = True
+and low = `ocaml < 4.14`, `check_simplification` recognizes that the tighter
+bound `ocaml < 4.14` already handles the `ocaml < 5.0` case. The `ocaml < 5.0`
+node would be redundant, so `make_node` returns the low branch unchanged.
 
 **A concrete example.** Consider computing `ocaml < 4.14 AND ocaml < 5.0`.
 Without theory awareness, the AND would produce a two-node BDD. With it, the
@@ -550,13 +575,20 @@ let forall v t = quantify and_ v t
 
 The `quantify` function walks the BDD, and whenever it encounters an atom for
 the target variable, it combines the high and low branches with the given
-operator instead of creating a decision node. For theory variables, this
-eliminates all atoms mentioning that variable — not just a single boolean test,
-but every bound or equality constraint on it.
+operator instead of creating a decision node.
 
-Consider `(x AND y) OR (NOT x AND z)`. eliminate `x` (`exists x`), and you get
-`y OR z`. The variable `x` is gone, and the formula now represents "conditions
-under which *some* value of `x` satisfied the original formula."
+For a boolean variable, this is straightforward. Consider
+`(x AND y) OR (NOT x AND z)`. Eliminate `x` (`exists x`), and you get `y OR z`.
+The variable `x` is gone, and the formula now represents "conditions under which
+*some* value of `x` satisfied the original formula."
+
+For theory variables, quantifier elimination is more powerful: it removes *every*
+atom mentioning that variable, not just a single boolean test. Consider
+`ocaml >= 4.14 AND ocaml < 5.0 AND dune >= 3.0`. The BDD for this formula
+contains two atoms on the `ocaml` variable (the two bounds). Calling
+`exists ocaml` encounters both atoms during traversal and combines their branches
+at each step. The result is just `dune >= 3.0` — all version constraints on
+`ocaml` have been projected away, leaving only the conditions on other variables.
 
 ### Contextual simplification
 
@@ -570,10 +602,22 @@ table index that tracks strict bounds (`<`), loose bounds (`<=`), and equality
 sets for every variable.
 
 Then, it walks the BDD. For each node, it asks the store: "Is this atom's value
-forced by the constraints?" If the constraints imply `ocaml < 4.14` and the node
-tests `ocaml < 5.0`, the store returns `true`, and the traversal skips directly
-to the high branch. This allows simplifying complex formulas based on context,
-effectively specializing the BDD to a specific environment.
+forced by the constraints?" The store handles each category differently:
+
+- **Leq**: it tracks strict and loose upper bounds per variable. If the
+  constraint is `ocaml < 4.14` and the node tests `ocaml < 5.0`, the store sees
+  that the strict bound 4.14 implies the looser bound 5.0, and returns `true` —
+  the traversal skips directly to the high branch.
+- **Eq**: it tracks the set of possible values. If the constraint is
+  `name = "foo"` and the node tests `name = "bar"`, the store returns `false`.
+
+For example, restricting `(ocaml < 5.0 AND dune >= 3.0) OR ocaml >= 5.0` under
+the constraint `ocaml < 4.14` eliminates both `ocaml` atoms (one implied, one
+contradicted) and yields just `dune >= 3.0`.
+
+The constraint store also detects contradictions eagerly: if the input
+constraints are mutually inconsistent (e.g., `ocaml < 4.14` and `ocaml >= 5.0`),
+`restrict` short-circuits and returns `False` without traversing the BDD at all.
 
 ## Optimization as search
 
@@ -619,9 +663,24 @@ actually build it?
 Theo addresses this with a dedicated `ite_constant` engine. It traverses the
 graph as if it were computing `ite(f, g, h)`, but instead of allocating nodes,
 it only tracks whether the result is guaranteed to be a boolean constant (`True`
-or `False`) or if it depends on variables (`NonConstant`). This powers
-`logical_implies`, `is_disjoint`, and `is_exhaustive` — all without constructing
-a single intermediate node.
+or `False`) or if it depends on variables (`NonConstant`). The recursion
+short-circuits as soon as one branch returns `NonConstant` — no need to explore
+the other side.
+
+The three main queries each reduce to a single `ite_constant` call:
+
+```ocaml
+let logical_implies a b =                  (* a => b  ≡  ite(a, b, true) = true  *)
+  ite_constant a b true_ = Constant true
+let is_disjoint a b =                      (* a ∧ b = ⊥  ≡  ite(a, b, false) = false *)
+  ite_constant a b false_ = Constant false
+let is_exhaustive a b =                    (* a ∨ b = ⊤  ≡  ite(a, true, b) = true  *)
+  ite_constant a true_ b = Constant true
+```
+
+Each is a one-liner. No intermediate BDD is constructed. And the `ite_constant`
+engine even opportunistically checks the regular ITE cache: if a previous full
+computation already established the result, it reuses it instantly.
 
 ## Balanced construction
 
