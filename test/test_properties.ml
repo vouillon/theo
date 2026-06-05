@@ -23,7 +23,7 @@ let c_ver_ge v limit = F.Constraint.not (c_ver_lt v limit)
 let bool_var_pool = Array.init 10 (fun _ -> Theo.Var.fresh ())
 let str_var_pool = Array.init 5 (fun _ -> Theo.Var.fresh ())
 let ver_var_pool = Array.init 5 (fun _ -> Theo.Var.fresh ())
-let gen_str_val = Gen.oneofl [ "a"; "b"; "c" ]
+let gen_str_val = Gen.oneof_list [ "a"; "b"; "c" ]
 
 let gen_ver_val =
   QCheck.Gen.(
@@ -248,7 +248,7 @@ let prop_interval_union_order =
     ~name:
       "Interval Union Order: or_list (shuffle intervals) = or_list intervals"
     ~count:2000
-    (pair idx_arb (small_list (pair ver_arb ver_arb)))
+    (pair idx_arb (list_small (pair ver_arb ver_arb)))
     (fun (idx, intervals) ->
       let make_interval (v1, v2) =
         if Version.compare v1 v2 < 0 then
@@ -529,7 +529,7 @@ let shuffle_list l state =
 let prop_restrict_consistent =
   Test.make ~name:"Restrict Partial: eval (restrict f C) w = eval f w"
     ~count:2000
-    (triple (make (gen_naive_expr 4)) (make gen_world) small_nat)
+    (triple (make (gen_naive_expr 4)) (make gen_world) nat_small)
     (fun (naive, world, seed_int) ->
       let bdd = naive_to_bdd naive in
       let expected_bool = eval_naive naive world in
