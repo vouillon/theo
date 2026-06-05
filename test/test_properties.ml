@@ -559,8 +559,11 @@ let bdd_arbitrary = make (Gen.map naive_to_bdd (gen_naive_expr 4))
 let prop_ite_constant_consistent =
   Test.make ~name:"ite_constant consistent with ite" ~count:2000
     (triple bdd_arbitrary bdd_arbitrary bdd_arbitrary) (fun (f, g, h) ->
-      let res_ite = F.ite f g h in
+      (* Evaluate ite_constant BEFORE ite: otherwise ite populates ITE_cache
+         and ite_constant short-circuits without exercising its own recursion
+         and cache (which is where polarity-collision bugs hide). *)
       let res_const = F.ite_constant f g h in
+      let res_ite = F.ite f g h in
       let ite_is_true = F.equivalent res_ite F.true_ in
       let ite_is_false = F.equivalent res_ite F.false_ in
       match res_const with
