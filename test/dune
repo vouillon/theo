@@ -3,6 +3,7 @@
   test_operations
   test_ite_constant
   test_shortest_sat
+  test_isop
   test_logical_checks
   repro_recursion
   test_properties
