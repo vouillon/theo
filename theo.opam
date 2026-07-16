@@ -12,7 +12,7 @@ bug-reports: "https://github.com/vouillon/theo/issues"
 depends: [
   "dune" {>= "3.17"}
   "ocaml" {>= "4.08"}
-  "qcheck" {with-test & >= "0.18"}
+  "qcheck" {with-test & >= "0.90"}
   "odoc" {with-doc}
 ]
 build: [

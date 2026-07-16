@@ -19,6 +19,7 @@ end
 module String = struct
   include String
 
+  let hash = Hashtbl.hash
   let to_string s = Printf.sprintf "%S" s
 end
 

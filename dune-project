@@ -22,7 +22,7 @@
   (qcheck
    (and
     :with-test
-    (>= 0.18))))
+    (>= 0.90))))
  (authors "Jérôme Vouillon")
  (maintainers "Jérôme Vouillon")
  (license MIT))
