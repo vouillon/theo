@@ -22,7 +22,7 @@ The API documentation is available online at: [https://vouillon.github.io/theo/t
 
 ### Prerequisites
 
-*   OCaml >= 4.08
+*   OCaml >= 4.14
 *   Dune >= 3.17
 
 ### Building from Source

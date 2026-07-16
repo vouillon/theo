@@ -18,7 +18,7 @@
   "A Boolean Decision Diagram library implemented in OCaml, with built-in support for atomic constraints over specific theories (like strings and semantic versions).")
  (depends
   (ocaml
-   (>= 4.08))
+   (>= 4.14))
   (qcheck
    (and
     :with-test
