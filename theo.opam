@@ -6,9 +6,12 @@ description:
 maintainer: ["Jérôme Vouillon"]
 authors: ["Jérôme Vouillon"]
 license: "MIT"
+homepage: "https://github.com/vouillon/theo"
+doc: "https://vouillon.github.io/theo/"
+bug-reports: "https://github.com/vouillon/theo/issues"
 depends: [
+  "dune" {>= "3.17"}
   "ocaml" {>= "4.08"}
-  "dune" {>= "3.17" & >= "3.17"}
   "qcheck" {with-test & >= "0.18"}
   "odoc" {with-doc}
 ]
@@ -26,3 +29,4 @@ build: [
     "@doc" {with-doc}
   ]
 ]
+dev-repo: "git+https://github.com/vouillon/theo.git"

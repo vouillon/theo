@@ -4,6 +4,13 @@
 
 (generate_opam_files true)
 
+(source
+ (github vouillon/theo))
+
+(homepage "https://github.com/vouillon/theo")
+
+(documentation "https://vouillon.github.io/theo/")
+
 (package
  (name theo)
  (synopsis "A BDD library with theory support")
@@ -12,8 +19,6 @@
  (depends
   (ocaml
    (>= 4.08))
-  (dune
-   (>= 3.17))
   (qcheck
    (and
     :with-test

@@ -28,7 +28,7 @@ The API documentation is available online at: [https://vouillon.github.io/theo/t
 ### Building from Source
 
 ```bash
-git clone https://github.com/yourusername/theo.git
+git clone https://github.com/vouillon/theo.git
 cd theo
 dune build
 ```
