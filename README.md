@@ -1,6 +1,6 @@
 # Theo
 
-Theo is a high-performance **Binary Decision Diagram (BDD)** library for OCaml. It provides efficient boolean logic manipulation with support for theory reasoning over **linear orders and equality** (including booleans, strings, integers, and semantic versions).
+Theo is a **Binary Decision Diagram (BDD)** library for OCaml. It provides efficient boolean logic manipulation with support for theory reasoning over **linear orders and equality** (including booleans, strings, integers, and semantic versions).
 
 ## Documentation
 
@@ -35,7 +35,13 @@ dune build
 
 ### Installing via Opam
 
-To install the library and its dependencies:
+To install the latest release from the opam repository:
+
+```bash
+opam install theo
+```
+
+Alternatively, to install from a local checkout:
 
 ```bash
 opam install .
