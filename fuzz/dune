@@ -1,7 +1,12 @@
-; The Monolith harness. It is marked (optional) so that plain [dune build] and
-; [dune build @runtest] keep working when monolith is not installed: dune then
-; silently skips this executable. monolith is therefore NOT a with-test
-; dependency of the package (see dune-project / fuzz/README.md).
+; The Monolith harness. The (select ...) clause picks the real harness when
+; monolith is available and a stub otherwise, so plain [dune build] and
+; [dune build @runtest] keep working when monolith is not installed. This is
+; the mechanism dune provides for depending on optional libraries: neither
+; (optional) -- which only affects installation, the executable stays in
+; @all/@default and fails the build (this broke CI) -- nor
+; (enabled_if %{lib-available:...}) -- not allowed for executables -- works
+; here. monolith is therefore NOT a with-test dependency of the package (see
+; dune-project / fuzz/README.md).
 ;
 ; This executable is intentionally not a test and not attached to @runtest --
 ; running it means fuzzing (random or afl mode), which is an opt-in activity;
@@ -9,5 +14,11 @@
 
 (executable
  (name main)
- (optional)
- (libraries theo theo_test_support monolith pprint))
+ (libraries
+  theo
+  theo_test_support
+  (select
+   main.ml
+   from
+   (monolith pprint -> main.fuzz.ml)
+   (-> main.absent.ml))))

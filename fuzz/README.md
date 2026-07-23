@@ -27,9 +27,10 @@ scenario as OCaml code when it finds one.
 ## Requirements
 
 `monolith` is **not** a `with-test` dependency of the package: `dune build` and
-`dune build @runtest` work without it, and the harness executable is marked
-`(optional)` so dune silently skips it when monolith is absent. In the opam
-metadata monolith is declared `{with-dev-setup}`.
+`dune build @runtest` work without it, because `fuzz/dune` uses a
+`(select ...)` clause that substitutes a stub for the harness when monolith is
+absent (the stub prints an installation hint and exits with code 2). In the
+opam metadata monolith is declared `{with-dev-setup}`.
 
 To build and run the harness, install monolith in your switch:
 
