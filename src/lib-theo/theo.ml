@@ -136,7 +136,7 @@ module Make (T : Theory) = struct
       | _ -> invalid_arg "Cannot negate complex constraints"
 
     let and_ x y = x @ y
-    let or_ _ _ = invalid_arg "Cannot take the conjunction of two constraints"
+    let or_ _ _ = invalid_arg "Cannot take the disjunction of two constraints"
   end
 
   type positive
@@ -420,7 +420,15 @@ module Make (T : Theory) = struct
 
   (* Theory simplification: when an atom like "v = A" is true, it implies
    "v != B" for any B != A. These functions propagate such implications
-   through the BDD to simplify redundant nodes. *)
+   through the BDD to simplify redundant nodes.
+
+   [simplify_node] is only reached (via [prune] and [check_simplification])
+   for an [Eq] atom [a] assumed true, with [a] strictly below [u]'s top atom
+   in the BDD ordering. Hence [a] itself cannot occur in [u], and every
+   same-variable atom found along the low chain is a distinct equality on
+   that variable, i.e. false: we always take the low branch. The result --
+   the first node on another variable -- is therefore independent of [a],
+   which is why [Simplify_cache] is soundly keyed on the node alone. *)
   let simplify_node (Atom a) (u : positive u) =
     let rec find_cached (Atom a) u =
       match u with
@@ -789,9 +797,11 @@ module Make (T : Theory) = struct
   let eval_atom (Atom atom) b (Atom atom') =
     if atom.var == atom'.var then
       match (atom.payload, atom'.payload) with
-      | Bool, _ -> Some b
+      | Bool, Bool -> Some b
       | Theory t, Theory t' -> check atom.category t b t'
-      | _ -> assert false
+      (* A variable cannot carry both boolean and theory atoms: [bool]
+         requires a [bool Var.t] while theory kinds are abstract. *)
+      | Bool, Theory _ | Theory _, Bool -> assert false
     else None
 
   module Constraints = struct
@@ -944,24 +954,9 @@ module Make (T : Theory) = struct
             let eval_atom atom' = eval_atom (Atom atom) value atom' in
             restrict_impl t v eval_atom
         | _ when List.compare_length_with constraints 5 <= 0 ->
-            let rec no_contradiction atom' value' l =
-              match l with
-              | [] -> true
-              | { atom; value } :: r ->
-                  eval_atom atom' (value <> value') atom <> Some false
-                  && no_contradiction atom' value' r
-            in
-            let rec validate_constraints l =
-              match l with
-              | [] -> true
-              | { atom; value } :: r ->
-                  no_contradiction atom value r && validate_constraints r
-            in
-            let valid =
-              if true then Constraints.create constraints <> None
-              else validate_constraints constraints
-            in
-            if Stdlib.not valid then false_
+            (* Validate the constraints with a full store, but evaluate atoms
+               by scanning the short list directly. *)
+            if Constraints.create constraints = None then false_
             else
               let max_var =
                 List.fold_left
@@ -1224,7 +1219,11 @@ module Make (T : Theory) = struct
 
   let of_cube (cube : atomic_constraint list) : t =
     List.fold_left
-      (fun acc { atom; value } ->
+      (fun acc { atom = Atom { var; category; payload; _ }; value } ->
+        (* Re-intern the atom: constraints built through [Constraint] are not
+           hash-consed, and node construction relies on physical atom
+           equality. *)
+        let atom = Atom.make var category payload in
         let lit = if value then make_atom atom else not (make_atom atom) in
         and_ acc lit)
       true_ cube

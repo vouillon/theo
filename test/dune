@@ -1,5 +1,6 @@
 (tests
  (names
+  doc_examples
   test_operations
   test_ite_constant
   test_shortest_sat

@@ -14,14 +14,20 @@
     - Theory atoms: boolean tests, string equality, version comparisons
     - Type-safe variable system using GADTs
 
+    {b Concurrency:} the library is not thread-safe (nor domain-safe): fresh
+    variable generation, the hash-consing tables, and the operation caches are
+    shared mutable state.
+
     {b Example usage:}
     {[
-      module Theo = Theo.Make(Theo.Void)
-      let open Theo.Syntax in
-      let b1 = Theo.var Boolean in
-      let b2 = Theo.var Boolean in
-      let expr = Theo.atom b1 && not (Theo.atom b2) in
-      if Theo.is_tautology expr then Printf.printf "Always true\n"
+    module Bdd = Theo.Make (Theo.Void)
+
+    let b1 = Bdd.Var.fresh ()
+    let b2 = Bdd.Var.fresh ()
+    let expr = Bdd.Syntax.(bool b1 && not (bool b2))
+
+    let () =
+      if Bdd.is_tautology expr then Printf.printf "Always true\n"
       else Printf.printf "Depends on variables\n"
     ]}
 
@@ -58,8 +64,8 @@
       module S = StringEq.Syntax(MyTheory.Right(MyBDD))
 
       (* 6. Now you can mix them! *)
-      let v_var = MyBDD.var ()
-      let s_var = MyBDD.var ()
+      let v_var = MyBDD.Var.fresh ()
+      let s_var = MyBDD.Var.fresh ()
       let expr = MyBDD.and_ V.(v_var < v) S.(s_var = s)
     ]}
 
@@ -68,37 +74,36 @@
     [view_constraint].
 
     {[
-      (* 1. Build constraint syntax helpers *)
-      (* Instead of MyBDD, we pass MyBDD.Constraint to the syntax functors *)
-      module V_cstr = VersionLeq.Syntax (MyTheory.Left (MyBDD.Constraint))
-      module S_cstr = StringEq.Syntax (MyTheory.Right (MyBDD.Constraint))
+    (* 1. Build constraint syntax helpers *)
+    (* Instead of MyBDD, we pass MyBDD.Constraint to the syntax functors *)
+    module V_cstr = VersionLeq.Syntax (MyTheory.Left (MyBDD.Constraint))
+    module S_cstr = StringEq.Syntax (MyTheory.Right (MyBDD.Constraint))
 
-      (* 2. Create constraints *)
-      (* Note: These return atomic_constraint list, NOT a BDD *)
-      let c1 = V_cstr.(v_var < v)
-      let c2 = S_cstr.(s_var = s)
+    (* 2. Create constraints *)
+    (* Note: These return atomic_constraint list, NOT a BDD *)
+    let c1 = V_cstr.(v_var < v)
+    let c2 = S_cstr.(s_var = s)
 
-      (* 3. Combine constraints *)
-      let constraints = MyBDD.Constraint.and_ c1 c2
+    (* 3. Combine constraints *)
+    let constraints = MyBDD.Constraint.and_ c1 c2
 
-      (* 4. Restrict a BDD *)
-      let restricted_expr = MyBDD.restrict expr constraints
+    (* 4. Restrict a BDD *)
+    let restricted_expr = MyBDD.restrict expr constraints
 
-      (* 5. Introspection (Pattern Matching) *)
-      let match_constraint (c : MyBDD.atomic_constraint) =
-        match MyBDD.view_constraint c with
-        | MyBDD.Constraint { var; payload = Bool; value } ->
-            Printf.printf "Bool var %d = %b" var value
-        | MyBDD.Constraint { var; payload = Theory desc; value } -> (
-            (* 'desc' is a 'desc MyTheory.t' (the sum type) *)
-            match desc with
-            | MyTheory.Left (VersionLeq.Bound { limit; inclusive }) ->
-                Printf.printf "Version <= %s is %b"
-                  (VersionAtom.to_string limit)
-                  value
-            | MyTheory.Right (StringEq.Const s) ->
-                Printf.printf "String = %s is %b" (StringAtom.to_string s) value
-            )
+    (* 5. Introspection (Pattern Matching) *)
+    let match_constraint (c : MyBDD.atomic_constraint) =
+      match MyBDD.view_constraint c with
+      | MyBDD.Constraint { payload = Bool; value; _ } ->
+          Printf.printf "Boolean variable is %b" value
+      | MyBDD.Constraint { payload = Theory desc; value; _ } -> (
+          (* 'desc' is a 'kind MyTheory.t' (the sum type) *)
+          match desc with
+          | MyTheory.Left (VersionLeq.Bound { limit; inclusive = _ }) ->
+              Printf.printf "Version <= %s is %b"
+                (VersionAtom.to_string limit)
+                value
+          | MyTheory.Right (StringEq.Const s) ->
+              Printf.printf "String = %s is %b" (StringAtom.to_string s) value)
     ]} *)
 
 (**/**)
@@ -166,6 +171,9 @@ module Make (T : Theory) : sig
   type t
   (** Abstract type representing a BDD expression. *)
 
+  module Var = Var
+  (** Alias of {!Theo.Var}, re-exported for convenience. *)
+
   (** {1 Standard Interface} *)
 
   val equal : t -> t -> bool
@@ -176,7 +184,7 @@ module Make (T : Theory) : sig
       Complexity: O(1) *)
 
   val compare : t -> t -> int
-  (** [compare a b] compares the unique identifiers of [a] and [b]. defines a
+  (** [compare a b] compares the unique identifiers of [a] and [b], defining a
       total ordering suitable for [Set] and [Map].
 
       Complexity: O(1) *)
@@ -194,7 +202,7 @@ module Make (T : Theory) : sig
 
   (** {1 Atomic Boolean Formulas} *)
 
-  val bool : 'kind Var.t -> t
+  val bool : bool Var.t -> t
   (** [bool v] creates an expression that is true when boolean variable [v] is
       true. *)
 
@@ -336,7 +344,7 @@ module Make (T : Theory) : sig
   module Constraint : sig
     type t = atomic_constraint list
 
-    val bool : 'kind Var.t -> bool -> t
+    val bool : bool Var.t -> bool -> t
     (** [bool v b] creates a constraint asserting that boolean variable [v] has
         value [b]. *)
 
@@ -383,11 +391,11 @@ module Make (T : Theory) : sig
   (** [exists v expr] eliminates variable [v] from [expr] by computing the
       disjunction over all possible values. For a boolean variable, this is
       equivalent to
-      [restrict expr [Boolean(v, true)] || restrict expr [Boolean(v, false)]].
-      For theory variables, it quantifies over all atoms mentioning [v].
+      [or_ (restrict expr (Constraint.bool v true)) (restrict expr
+       (Constraint.bool v false))]. For theory variables, it quantifies over all
+      atoms mentioning [v].
 
-      Example:
-      [let expr' = exists b (and_ (atom b) (atom c)) (* Result: atom c *)]
+      Example: [exists b (and_ (bool b) (bool c))] is [bool c].
 
       Complexity: O(|expr|²) *)
 
@@ -395,10 +403,10 @@ module Make (T : Theory) : sig
   (** [forall v expr] eliminates variable [v] from [expr] by computing the
       conjunction over all possible values. For a boolean variable, this is
       equivalent to
-      [restrict expr [Boolean(v, true)] && restrict expr [Boolean(v, false)]].
+      [and_ (restrict expr (Constraint.bool v true)) (restrict expr
+       (Constraint.bool v false))].
 
-      Example:
-      [let expr' = forall b (or_ (atom b) (atom c)) (* Result: atom c *)]
+      Example: [forall b (or_ (bool b) (bool c))] is [bool c].
 
       Complexity: O(|expr|²) *)
 
@@ -424,17 +432,17 @@ module Make (T : Theory) : sig
       disjunction of all cubes is logically equivalent to [expr]:
       [sop_to_bdd (irredundant_sop expr)] equals [expr].
 
-      An empty outer list denotes [false_]; a single empty cube [\[\[\]\]]
-      denotes [true_].
+      An empty outer list denotes [false_]; a single empty cube [[[]]] denotes
+      [true_].
 
       The cover is irredundant {e modulo the theory}: impossible combinations of
       atoms (e.g. [v < 1] and [v >= 3] can never hold together) are exploited as
-      don't-cares. Concretely, no cube can be dropped while staying equivalent to
-      [expr], and each cube is a prime implicant modulo theory -- no literal can
-      be removed even accounting for theory implications between atoms. For
+      don't-cares. Concretely, no cube can be dropped while staying equivalent
+      to [expr], and each cube is a prime implicant modulo theory -- no literal
+      can be removed even accounting for theory implications between atoms. For
       instance the cover of [¬(v<1) ∧ ((v<2) ∨ ¬(v<3))] contains the single
-      literal cube [¬(v<3)] rather than [¬(v<1) ∧ ¬(v<3)], since [¬(v<3)] already
-      entails [¬(v<1)].
+      literal cube [¬(v<3)] rather than [¬(v<1) ∧ ¬(v<3)], since [¬(v<3)]
+      already entails [¬(v<1)].
 
       Implementation note: the raw Minato-Morreale recursion yields a cover that
       is irredundant only over the atoms treated as independent Booleans; this
@@ -443,11 +451,11 @@ module Make (T : Theory) : sig
       is skipped when no variable carries two related atoms (in particular for
       purely Boolean expressions), since it cannot change the cover then.
 
-      Complexity: the Minato-Morreale recursion is memoized on the [(lower,
-      upper)] interval. Producing [k] cubes then costs O(k²) theory-aware BDD
-      operations for the post-processing when it runs. Note [k], the size of an
-      irredundant cover, can itself be exponential in the number of atoms in the
-      worst case. *)
+      Complexity: the Minato-Morreale recursion is memoized on the
+      [(lower, upper)] interval. Producing [k] cubes then costs O(k²)
+      theory-aware BDD operations for the post-processing when it runs. Note
+      [k], the size of an irredundant cover, can itself be exponential in the
+      number of atoms in the worst case. *)
 
   val of_cube : atomic_constraint list -> t
   (** [of_cube cube] builds the conjunction (product) of the literals in [cube].

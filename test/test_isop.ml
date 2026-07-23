@@ -76,14 +76,12 @@ let test_basic () =
   check_irredundant "a^b" (a <+> b);
 
   (* a&b | !a&c : the consensus term b&c is redundant and must be absent. *)
-  check_irredundant "ab|!ac" ((a && b) || (not a && c));
+  check_irredundant "ab|!ac" ((a && b) || ((not a) && c));
 
   (* Majority: all three cubes are prime and required (3-cube irredundant). *)
   let maj = (a && b) || (b && c) || (a && c) in
   check_irredundant "ab|bc|ac" maj;
-  assert_bool
-    (List.length (F.irredundant_sop maj) = 3)
-    "majority has 3 cubes";
+  assert_bool (List.length (F.irredundant_sop maj) = 3) "majority has 3 cubes";
 
   Printf.printf "OK\n"
 
@@ -101,11 +99,10 @@ let test_theory () =
   let v2 = { Version.major = 2; minor = 0; patch = 0 } in
 
   check_irredundant "v<1.0.0" (v < v1);
-  check_irredundant "v>=1 & v<2" ((v >= v1) && (v < v2));
+  check_irredundant "v>=1 & v<2" (v >= v1 && v < v2);
   check_irredundant "s=a | s=b"
     (StringSyntax.(s = "a") || StringSyntax.(s = "b"));
-  check_irredundant "v<1 | s=prod"
-    ((v < v1) || StringSyntax.(s = "prod"));
+  check_irredundant "v<1 | s=prod" (v < v1 || StringSyntax.(s = "prod"));
   Printf.printf "OK\n"
 
 (* --- Exploiting impossible theory combinations --- *)
@@ -129,7 +126,9 @@ let test_theory_dont_care () =
   check_irredundant "example" expr;
   (* Two cubes, three literals total: [¬(v<1) ∧ (v<2)] and [¬(v<3)]. *)
   assert_bool (Int.equal (List.length cubes) 2) "example has 2 cubes";
-  assert_bool (Int.equal (total_literals cubes) 3) "example has 3 literals total";
+  assert_bool
+    (Int.equal (total_literals cubes) 3)
+    "example has 3 literals total";
   assert_bool
     (List.exists
        (fun cube ->
@@ -139,14 +138,13 @@ let test_theory_dont_care () =
        cubes)
     "example contains the single-literal cube ¬(v<3)";
 
-  check_irredundant "v<1 | v>=2 & v<3" ((v < b1) || ((v >= b2) && (v < b3)));
+  check_irredundant "v<1 | v>=2 & v<3" (v < b1 || (v >= b2 && v < b3));
 
   (* Independent single theory atoms (different variables): no variable carries
      two related atoms, so the post-processing is skipped -- the result must
      still be a valid irredundant cover. *)
   let s = Theo.Var.fresh () in
-  check_irredundant "v<1 | s=x (skip path)"
-    ((v < b1) || StringSyntax.(s = "x"));
+  check_irredundant "v<1 | s=x (skip path)" (v < b1 || StringSyntax.(s = "x"));
   Printf.printf "OK\n"
 
 let () =
@@ -169,7 +167,8 @@ let gen_ver_val =
 
 module Syn = Formula.Syntax
 
-let gen_bool_atom = Gen.map (fun i -> Syn.bool bool_var_pool.(i)) (Gen.int_bound 5)
+let gen_bool_atom =
+  Gen.map (fun i -> Syn.bool bool_var_pool.(i)) (Gen.int_bound 5)
 
 let gen_theory_atom =
   Gen.oneof

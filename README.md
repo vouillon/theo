@@ -64,25 +64,28 @@ The library is built around a few core concepts:
 
 ## Usage
 
+The examples below are compiled and checked by `test/doc_examples.ml`; keep
+them in sync.
+
 ### 1. Simple Boolean Logic
 
 Use `Theo.Void` for standard BDDs without extra theories.
 
 ```ocaml
-module BDD = Theo.Make(Theo.Void)
-let open BDD.Syntax
+module BDD = Theo.Make (Theo.Void)
 
 let () =
-  let x = BDD.var () in
-  let y = BDD.var () in
+  let x = BDD.Var.fresh () in
+  let y = BDD.Var.fresh () in
 
   (* Construct expressions *)
-  let expr = (BDD.bool x) && (not (BDD.bool y)) in
+  let open BDD.Syntax in
+  let expr = bool x && not (bool y) in
 
   (* Check tautology/satisfiability *)
   let is_sat = BDD.is_satisfiable expr in (* true *)
-  let is_taut = BDD.is_tautology expr in   (* false *)
-  Printf.printf "Sat: %b\n" is_sat
+  let is_taut = BDD.is_tautology expr in (* false *)
+  Printf.printf "Sat: %b, Taut: %b\n" is_sat is_taut
 ```
 
 ### 2. Combining Theories
@@ -118,18 +121,15 @@ module MyBDD = Theo.Make(MyTheory)
 module V = VersionLeq.Syntax(MyTheory.Left(MyBDD))
 module S = StringEq.Syntax(MyTheory.Right(MyBDD))
 
-let () =
-  (* 6. Now you can mix them! *)
-  let v_var = MyBDD.var () in
-  let s_var = MyBDD.var () in
-  
-  let v = { VersionAtom.major = 1; minor = 0; patch = 0 } in
-  let s = "production" in
-  
-  (* Use infix operators: V.(...) and S.(...) *)
-  let expr = MyBDD.and_ V.(v_var < v) S.(s_var = s) in
-  (* "Version < 1.0.0 AND String = 'production'" *)
-  ()
+(* 6. Now you can mix them! *)
+let v_var = MyBDD.Var.fresh ()
+let s_var = MyBDD.Var.fresh ()
+let v = { VersionAtom.major = 1; minor = 0; patch = 0 }
+let s = "production"
+
+(* Use infix operators: V.(...) and S.(...) *)
+let expr = MyBDD.and_ V.(v_var < v) S.(s_var = s)
+(* "Version < 1.0.0 AND String = 'production'" *)
 ```
 
 ### 3. Working with Constraints
@@ -144,26 +144,34 @@ module S_cstr = StringEq.Syntax(MyTheory.Right(MyBDD.Constraint))
 
 let () =
   (* 2. Create constraints *)
-  let c1 = V_cstr.(v_var < v) in 
-  
+  let c1 = V_cstr.(v_var < v) in
+
   (* 3. Restrict a BDD *)
-  (* assert that v < 1.0.0 *)
+  (* assume that v_var < 1.0.0 *)
   let restricted_expr = MyBDD.restrict expr c1 in
-  
+  Printf.printf "Restricted: %s\n" (MyBDD.to_string restricted_expr);
+
   (* 4. Introspection *)
-  let match_constraint (c : MyBDD.atomic_constraint) =
+  let describe (c : MyBDD.atomic_constraint) =
     match MyBDD.view_constraint c with
-    | MyBDD.Constraint { var; payload = Bool; value } ->
-        Printf.printf "Bool var %b" value
-    | MyBDD.Constraint { var; payload = Theory desc; value } ->
+    | MyBDD.Constraint { payload = Bool; value; _ } ->
+        Printf.printf "boolean variable is %b\n" value
+    | MyBDD.Constraint { payload = Theory desc; value; _ } -> (
         match desc with
         | MyTheory.Left (VersionLeq.Bound { limit; inclusive }) ->
-            Printf.printf "Version <= %s is %b" (VersionAtom.to_string limit) value
+            Printf.printf "version %s %s is %b\n"
+              (if inclusive then "<=" else "<")
+              (VersionAtom.to_string limit) value
         | MyTheory.Right (StringEq.Const s) ->
-            Printf.printf "String = %s is %b" s value
-  in 
-  ()
+            Printf.printf "string = %s is %b\n" s value)
+  in
+  List.iter describe c1
 ```
+
+## Thread Safety
+
+Theo is not thread-safe (nor domain-safe): fresh variable generation, the
+hash-consing tables, and the operation caches are shared mutable state.
 
 ## Project Structure
 

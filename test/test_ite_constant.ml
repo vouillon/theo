@@ -82,7 +82,7 @@ let test_ite_constant_consistent () =
           | F.Constant true -> 1
           | F.NonConstant -> 2
         in
-        codes.(((fi * n) + gi) * n + hi) <- c
+        codes.((((fi * n) + gi) * n) + hi) <- c
       done
     done
   done;
@@ -95,7 +95,7 @@ let test_ite_constant_consistent () =
         let ite_true = F.equivalent res_ite F.true_ in
         let ite_false = F.equivalent res_ite F.false_ in
         let ok =
-          match codes.(((fi * n) + gi) * n + hi) with
+          match codes.((((fi * n) + gi) * n) + hi) with
           | 1 -> ite_true
           | 0 -> ite_false
           | _ -> Stdlib.not ite_true && Stdlib.not ite_false
@@ -105,7 +105,9 @@ let test_ite_constant_consistent () =
     done
   done;
   if !mismatches > 0 then
-    failwith (Printf.sprintf "ite_constant inconsistent with ite in %d cases" !mismatches)
+    failwith
+      (Printf.sprintf "ite_constant inconsistent with ite in %d cases"
+         !mismatches)
 
 let () =
   Printf.printf "Test ite_constant... ";

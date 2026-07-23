@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- Fix type-safety hole: `bool` and `Constraint.bool` now require a
+  `bool Var.t`, so a theory variable can no longer double as a boolean atom
+  (which produced incorrect `restrict` results)
+- Fix `of_cube`/`sop_to_bdd` on constraints built through the `Constraint`
+  module: atoms are now re-interned, preserving the hash-consing invariant
+- Fix the error message of `Constraint.or_`
+- Re-export `Var` from `Make` as `MyBDD.Var`
+- Fix the code examples in the documentation and compile them as part of the
+  test suite (`test/doc_examples.ml`)
+- Document that the library is not thread-safe
+- Add a CI workflow building and testing on OCaml 4.14 and 5.5
+
 ## 0.1.0 (2026-07-16)
 
 Initial release.
