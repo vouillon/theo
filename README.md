@@ -53,6 +53,12 @@ opam install .
 dune runtest
 ```
 
+In addition to the QCheck suite, `fuzz/` contains an optional
+[Monolith](https://gitlab.inria.fr/fpottier/monolith) harness that tests Theo
+against a reference model over arbitrary sequences of API calls (optionally with
+afl-fuzz). It is a dev-only tool and is not part of `dune runtest`; see
+[`fuzz/README.md`](fuzz/README.md).
+
 ## Architecture
 
 The library is built around a few core concepts:
@@ -179,6 +185,9 @@ hash-consing tables, and the operation caches are shared mutable state.
     *   `theo.ml`: Main BDD engine and theory functors.
     *   `theo.mli`: Public API documentation.
 *   `test/`: Unit tests, properties, and benchmarks.
+    *   `test/support/`: Shared private library (`theo_test_support`): the
+        monomorphised BDD instance and the reference model used for fuzzing.
+*   `fuzz/`: Optional Monolith fuzzing harness (see `fuzz/README.md`).
 
 ## License
 

@@ -8,6 +8,7 @@
   test_logical_checks
   repro_recursion
   test_properties
+  test_model
   test_benchmark
   test_performance)
- (libraries theo qcheck unix))
+ (libraries theo theo_test_support qcheck unix))

@@ -1,0 +1,12 @@
+; Private support library shared by the QCheck test suite (test/) and the
+; Monolith fuzzing harness (fuzz/). It is deliberately unwrapped so that the
+; existing test files can keep referring to the [Theories] module directly
+; (they all start with [open Theories]). It depends only on [theo]; in
+; particular it does NOT depend on [monolith], so the Phase 1 model self-tests
+; in test/ build and run as part of the normal test suite even when monolith is
+; not installed.
+
+(library
+ (name theo_test_support)
+ (wrapped false)
+ (libraries theo))

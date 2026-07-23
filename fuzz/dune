@@ -1,0 +1,13 @@
+; The Monolith harness. It is marked (optional) so that plain [dune build] and
+; [dune build @runtest] keep working when monolith is not installed: dune then
+; silently skips this executable. monolith is therefore NOT a with-test
+; dependency of the package (see dune-project / fuzz/README.md).
+;
+; This executable is intentionally not a test and not attached to @runtest --
+; running it means fuzzing (random or afl mode), which is an opt-in activity;
+; see fuzz/README.md and fuzz/Makefile.
+
+(executable
+ (name main)
+ (optional)
+ (libraries theo theo_test_support monolith pprint))

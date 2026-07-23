@@ -1,1 +1,7 @@
 _build
+/fuzz/input
+/fuzz/output
+/fuzz/output.*
+/fuzz/log
+/fuzz/dune-workspace.afl
+/output

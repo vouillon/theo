@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add a Monolith-based fuzzing harness (`fuzz/`) that tests Theo against a
+  trusted truth-table reference model over arbitrary sequences of API calls
+  (optionally driven by afl-fuzz), targeting history-dependence bugs through the
+  shared hash-consing tables and memo caches. The reference model lives in a
+  shared `theo_test_support` library and is unit-tested against Theo by
+  `test/test_model.ml`. `monolith` is a dev-only dependency; `dune build` and
+  `dune runtest` remain green without it.
 - Fix warning 8 (partial-match) on OCaml >= 5.5: define the `positive` and
   `negative` phantom types as private polymorphic variant abbreviations, since
   the exhaustiveness checker no longer assumes abstract types are distinct

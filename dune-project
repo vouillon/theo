@@ -22,7 +22,8 @@
   (qcheck
    (and
     :with-test
-    (>= 0.90))))
+    (>= 0.90)))
+  (monolith :with-dev-setup))
  (authors "Jérôme Vouillon")
  (maintainers "Jérôme Vouillon")
  (license MIT))
