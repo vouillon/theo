@@ -148,7 +148,9 @@ let () =
       else invalid "irredundant_sop: cover is not equivalent to the formula")
     F.irredundant_sop
 
-(* Fuel is the maximum scenario length. A modest value keeps random scenarios
-   short and readable; afl grows longer, more interesting sequences on its own.
-   The command line can override it (--fuel N). *)
-let () = main 15
+(* Fuel is the maximum scenario length. The cache-history bugs this harness
+   targets need scenarios long enough to populate a cache and then hit the
+   poisoned entry, so we default a little above Monolith's usual 15; in afl
+   mode this cap also bounds how long the sequences grown by the corpus
+   evolution can get. The command line can override it (--fuel N). *)
+let () = main 25

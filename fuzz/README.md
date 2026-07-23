@@ -49,18 +49,24 @@ The quickest way — runs on your current switch, feeding the harness from
 dune exec fuzz/main.exe -- --timeout 60
 ```
 
-Useful flags (see `Monolith.mli`): `--fuel N` (max scenario length, default 15),
-`--max-scenarios N`, `--timeout SECONDS`, `--show-scenario false`,
-`--save-scenario false`. With saving on (the default), discovered scenarios are
-written under `fuzz/output/crashes/` in human-readable form. Exit code is 0 when
-no discrepancy is found, 1 otherwise.
+Useful flags (see `Monolith.mli`): `--fuel N` (max scenario length; the harness
+defaults to 25, see `main.fuzz.ml`), `--max-scenarios N`, `--timeout SECONDS`,
+`--show-scenario false`, `--save-scenario false`. With saving on (the default),
+discovered scenarios are written under `output/crashes/` (relative to the
+working directory) in human-readable form.
 
-Scenario length matters for the cache-history bugs this harness targets: they
-need several operations to populate a cache and then hit the poisoned entry.
-Calibration point: the historical `ITE_constant_cache` polarity collision
-(fixed in 94993a9) is *not* found in 4 minutes of random mode at the default
-fuel, but `--fuel 25` rediscovers it within a couple of minutes, several times
-over. Prefer `--fuel 25` (or more) for random-mode runs.
+Scenario length matters for the cache-history bugs this harness targets: a
+scenario must populate a cache and then hit the poisoned entry, so very short
+scenarios find nothing. Calibration point: the historical `ITE_constant_cache`
+polarity collision (fixed in 94993a9) is rediscovered by random mode within a
+couple of minutes at fuel 15 or 25 alike (roughly 8-9 failure scenarios in two
+minutes either way).
+
+The exit code is 0 when no discrepancy was found and 1 otherwise. When reading
+the progress output, note that Monolith *reduces* fuel after each failure it
+finds (hunting for shorter scenarios), so a decreasing `fuel = N` in the
+progress line means failures have been found even if their reports have already
+scrolled by.
 
 The `Makefile` also has a `random` target, but it builds in the afl switch
 (below); the `dune exec` line above is the switch-agnostic way.
