@@ -29,7 +29,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install afl++
         run: |
@@ -54,7 +54,7 @@ jobs:
         run: opam exec -- dune build fuzz/main.exe
 
       - name: Restore the afl state
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: afl-state
           key: afl-state-${{ github.run_id }}
@@ -83,7 +83,7 @@ jobs:
       # the run found crashes, so they are not rediscovered from scratch.
       - name: Save the afl state
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: afl-state
           key: afl-state-${{ github.run_id }}
@@ -103,7 +103,7 @@ jobs:
 
       - name: Upload crashing inputs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: afl-crashes
           path: afl-state/*/crashes/
