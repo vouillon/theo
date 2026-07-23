@@ -117,9 +117,20 @@ the domain definitions in `../test/support/model.ml`.
   runs `dune exec fuzz/main.exe -- --timeout 30` on every PR (guarded by
   monolith being installed), and/or a scheduled (cron) job that runs afl mode
   for longer on an afl switch. Nothing here touches `.github/workflows/`.
-- `and_list` / `or_list` are not yet declared. They are compositions of covered
-  operations, but their divide-and-conquer order produces different cache
-  traffic, so they are worth adding in a second pass.
-- `shortest_sat` is checked for *validity* only (a consistent witness that
-  implies the formula); comparing its length against the model's minimum is a
-  possible future refinement.
+- `and_list` / `or_list` are declared (see `main.fuzz.ml`): their argument is a
+  `list t`, whose elements Monolith draws from the previously produced BDDs in
+  the environment. They are compositions of covered operations, but their
+  divide-and-conquer reduction order produces different cache traffic than an
+  equivalent fold of `and_`/`or_`, so they are exercised in their own right.
+- `shortest_sat` is checked for *validity* (a consistent witness that implies
+  the formula), and additionally for the length invariant
+  `length(shortest_sat f) <= length(sat f)` via the `shortest_sat_le_sat`
+  boolean observation. It is **not** checked for equality against the model's
+  brute-force semantic minimum: the library documents `shortest_sat` as the
+  shortest *path in the BDD DAG*, which is provably not the semantically minimal
+  satisfying cube. For `f = (b0 && b1) || b2` the shortest BDD path has length 2
+  (every root-to-true path must traverse the root atom `b0`), yet `{b2}` alone
+  implies `f`, so the semantic minimum is 1; an equality check would false-alarm
+  on such formulas. The semantic lower bound `model_min <= length(shortest_sat)`
+  is sound but toothless — it is already implied by the witness-validity check —
+  so it is not added separately. See the extended comment in `main.fuzz.ml`.

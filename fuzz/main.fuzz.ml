@@ -100,6 +100,14 @@ let () =
   declare "implies" (t ^> t ^> t) M.Ref.implies F.implies;
   declare "ite" (t ^> t ^> t ^> t) M.Ref.ite F.ite;
 
+  (* Batch conjunction/disjunction. These are compositions of covered ops, but
+     their divide-and-conquer reduction order produces different cache traffic
+     than an equivalent fold of [and_]/[or_], so they are exercised in their own
+     right. [list t] draws its elements from the previously produced BDDs in the
+     environment; the reference mirror folds (see [Model.Ref.and_list]). *)
+  declare "and_list" (list t ^> t) M.Ref.and_list M.Cand.and_list;
+  declare "or_list" (list t ^> t) M.Ref.or_list M.Cand.or_list;
+
   (* Restrict / of_cube over consistent cubes. *)
   declare "restrict" (t ^> cube ^> t) M.restrict M.Cand.restrict;
   declare "of_cube" (cube ^> t) M.of_cube M.Cand.of_cube;
@@ -146,7 +154,39 @@ let () =
     (fun a cover ->
       if M.isop_ok a cover then Valid cover
       else invalid "irredundant_sop: cover is not equivalent to the formula")
-    F.irredundant_sop
+    F.irredundant_sop;
+
+  (* shortest_sat minimality.
+
+     [shortest_sat] is documented (theo.mli) as the shortest *path in the BDD
+     DAG*, which is NOT the semantically minimal satisfying cube -- the two
+     provably differ. Concrete counterexample, reachable by the fuzzer:
+     for [f = (b0 && b1) || b2] the shortest BDD path has length 2 (every
+     root-to-true path must first traverse the root atom b0), yet the
+     single-literal cube {b2} already implies f, so the semantic minimum is 1.
+     Comparing [shortest_sat]'s length against the model's brute-force semantic
+     minimum would therefore raise false alarms, so we do NOT check equality.
+     (The semantic lower bound "model minimum <= length(shortest_sat f)" is
+     sound but has no teeth: it is already implied by the witness-validity check
+     on [shortest_sat] above, since any valid cube is at least as long as the
+     minimal valid cube.)
+
+     The teeth-bearing invariant we *can* check soundly is the upper bound: the
+     shortest path is never longer than the greedy path returned by [sat] (which
+     is one particular path). This distinguishes a correct minimiser from one
+     that returns a non-shortest path. We express it as a boolean observation
+     computed candidate-side (the Monolith nondeterministic checker only sees the
+     model value and the witness, not [sat f]); the reference answer is the
+     constant [true]. Both functions return [None] exactly when unsatisfiable. *)
+  let sat_len f = Option.map List.length (F.sat f) in
+  let shortest_len f = Option.map List.length (F.shortest_sat f) in
+  declare "shortest_sat_le_sat" (t ^> bool)
+    (fun _ -> true)
+    (fun f ->
+      match (shortest_len f, sat_len f) with
+      | Some s, Some p -> s <= p
+      | None, None -> true
+      | Some _, None | None, Some _ -> false)
 
 (* Fuel is the maximum scenario length. The cache-history bugs this harness
    targets need scenarios long enough to populate a cache and then hit the

@@ -167,6 +167,14 @@ module Ref = struct
   let ite (f : m) (g : m) (h : m) : m =
     init (fun i -> if f.(i) then g.(i) else h.(i))
 
+  (* Batch conjunction/disjunction. The library reduces the list with a
+     divide-and-conquer strategy (to minimise intermediate BDD sizes and reuse
+     the caches); the model just folds, since the association order is
+     irrelevant to the truth table. The empty-list identities match the library:
+     [and_list [] = true_], [or_list [] = false_]. *)
+  let and_list (l : m list) : m = List.fold_left and_ true_ l
+  let or_list (l : m list) : m = List.fold_left or_ false_ l
+
   (* Atoms. [atom_bool i] is true where boolean variable [i] is true. The
      version/string atoms evaluate the theory relation of the world value
      against the given constant. *)
@@ -329,6 +337,8 @@ module Cand = struct
             c_ver_ge ver_pool.(i) c @ c_ver_le ver_pool.(i) c)
       cube
 
+  let and_list = F.and_list
+  let or_list = F.or_list
   let restrict bdd cube = F.restrict bdd (constraints_of_cube cube)
   let of_cube cube = F.of_cube (constraints_of_cube cube)
   let exists_bool i = F.exists bool_pool.(i)

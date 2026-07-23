@@ -8,7 +8,10 @@
   shared hash-consing tables and memo caches. The reference model lives in a
   shared `theo_test_support` library and is unit-tested against Theo by
   `test/test_model.ml`. `monolith` is a dev-only dependency; `dune build` and
-  `dune runtest` remain green without it.
+  `dune runtest` remain green without it. A second pass adds the `and_list` /
+  `or_list` batch operations to the vocabulary and a `shortest_sat` length check
+  (`length(shortest_sat f) <= length(sat f)`, since the documented shortest BDD
+  path is not the semantically minimal cube).
 - Fix warning 8 (partial-match) on OCaml >= 5.5: define the `positive` and
   `negative` phantom types as private polymorphic variant abbreviations, since
   the exhaustiveness checker no longer assumes abstract types are distinct

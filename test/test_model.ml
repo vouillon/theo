@@ -5,10 +5,11 @@
    wrong, every fuzz report is noise. So, before building anything on top of it,
    we generate random formulas (and cubes, and quantified variables) with QCheck
    and check that, for the operation the Monolith harness relies on, the model's
-   answer agrees with Theo's. This exercises atoms, every connective, [restrict],
-   [of_cube], the quantifiers, and the nondeterministic observations [sat],
-   [shortest_sat] and [irredundant_sop] -- all against the same [expr] AST that
-   feeds the harness. These tests do not depend on monolith. *)
+   answer agrees with Theo's. This exercises atoms, every connective, the batch
+   operations [and_list]/[or_list], [restrict], [of_cube], the quantifiers, and
+   the nondeterministic observations [sat], [shortest_sat] and [irredundant_sop]
+   -- all against the same [expr] AST that feeds the harness. These tests do not
+   depend on monolith. *)
 
 open QCheck
 module M = Model
@@ -90,6 +91,13 @@ let rec gen_expr depth =
       ]
 
 let expr = make ~print:(fun _ -> "<expr>") (gen_expr 4)
+
+(* Small lists of expressions, for the batch operations [and_list]/[or_list]. *)
+let expr_list =
+  make
+    ~print:(fun _ -> "<expr list>")
+    (Gen.list_size (Gen.int_bound 5) (gen_expr 3))
+
 let count = 1000
 
 (* Unary observations. *)
@@ -111,6 +119,31 @@ let prop_ite_constant =
       | F.Constant a, F.Constant b -> a = b
       | F.NonConstant, F.NonConstant -> true
       | _ -> false)
+
+(* Batch operations. The model folds [and_]/[or_]; the library reduces with a
+   divide-and-conquer strategy. Check that the model and Theo classify every
+   world identically (via is_tautology/is_satisfiable), and anchor Theo's batch
+   result against the plain fold (which the connective tests already trust). *)
+
+let prop_and_list =
+  Test.make ~name:"model and_list agrees with Theo and_list" ~count expr_list
+    (fun es ->
+      let ms = List.map M.eval es in
+      let bdds = List.map M.to_bdd es in
+      M.Ref.is_tautology (M.Ref.and_list ms) = F.is_tautology (F.and_list bdds)
+      && M.Ref.is_satisfiable (M.Ref.and_list ms)
+         = F.is_satisfiable (F.and_list bdds)
+      && F.equivalent (F.and_list bdds) (List.fold_left F.and_ F.true_ bdds))
+
+let prop_or_list =
+  Test.make ~name:"model or_list agrees with Theo or_list" ~count expr_list
+    (fun es ->
+      let ms = List.map M.eval es in
+      let bdds = List.map M.to_bdd es in
+      M.Ref.is_tautology (M.Ref.or_list ms) = F.is_tautology (F.or_list bdds)
+      && M.Ref.is_satisfiable (M.Ref.or_list ms)
+         = F.is_satisfiable (F.or_list bdds)
+      && F.equivalent (F.or_list bdds) (List.fold_left F.or_ F.false_ bdds))
 
 (* Binary observations. *)
 
@@ -153,12 +186,29 @@ let prop_irredundant_sop =
   Test.make ~name:"Theo irredundant_sop cover accepted by model" ~count expr
     (fun e -> M.isop_ok (M.eval e) (F.irredundant_sop (M.to_bdd e)))
 
+(* The shortest_sat minimality invariant checked by the harness: the shortest
+   BDD path is never longer than the greedy [sat] path, and both return [None]
+   exactly when unsatisfiable. This is a library invariant (no model value is
+   involved), but it is cheap to guard here too. See the extended comment in
+   fuzz/main.fuzz.ml for why length equality against a semantic minimum would
+   false-alarm. *)
+let prop_shortest_sat_le_sat =
+  Test.make ~name:"Theo shortest_sat no longer than sat" ~count expr (fun e ->
+      let f = M.to_bdd e in
+      let len o = Option.map List.length o in
+      match (len (F.shortest_sat f), len (F.sat f)) with
+      | Some s, Some p -> s <= p
+      | None, None -> true
+      | Some _, None | None, Some _ -> false)
+
 let () =
   QCheck_runner.run_tests_main
     [
       prop_tautology;
       prop_satisfiable;
       prop_ite_constant;
+      prop_and_list;
+      prop_or_list;
       prop_equivalent;
       prop_logical_implies;
       prop_is_disjoint;
@@ -166,4 +216,5 @@ let () =
       prop_sat;
       prop_shortest_sat;
       prop_irredundant_sop;
+      prop_shortest_sat_le_sat;
     ]
