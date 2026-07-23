@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fix warning 8 (partial-match) on OCaml >= 5.5: define the `positive` and
+  `negative` phantom types as private polymorphic variant abbreviations, since
+  the exhaustiveness checker no longer assumes abstract types are distinct
+- Pin the ocamlformat version to 0.29.0
 - Fix type-safety hole: `bool` and `Constraint.bool` now require a
   `bool Var.t`, so a theory variable can no longer double as a boolean atom
   (which produced incorrect `restrict` results)

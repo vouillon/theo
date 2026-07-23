@@ -139,8 +139,13 @@ module Make (T : Theory) = struct
     let or_ _ _ = invalid_arg "Cannot take the disjunction of two constraints"
   end
 
-  type positive
-  type negative
+  (* Type-level labels for the phantom parameter of [u]. Defined as private
+     polymorphic variant abbreviations rather than abstract types so that they
+     are provably distinct: since OCaml 5.5 the exhaustiveness checker no
+     longer assumes distinctness of abstract types, and would flag every
+     match on a [positive u] as non-exhaustive. *)
+  type positive = private [ `Positive ]
+  type negative = private [ `Negative ]
 
   (* BDD nodes are ordered by Atom.compare. *)
 
