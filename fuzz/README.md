@@ -113,10 +113,12 @@ the domain definitions in `../test/support/model.ml`.
 
 ## Notes / possible extensions
 
-- CI integration is deliberately left to the author. Options: a smoke job that
-  runs `dune exec fuzz/main.exe -- --timeout 30` on every PR (guarded by
-  monolith being installed), and/or a scheduled (cron) job that runs afl mode
-  for longer on an afl switch. Nothing here touches `.github/workflows/`.
+- CI runs the harness at two tiers: a 60 s random-mode smoke job on every
+  push/PR (`fuzz-smoke` in `.github/workflows/ci.yml`) and a weekly 2 h afl
+  job (`.github/workflows/fuzz.yml`, also triggerable manually) whose afl
+  state is cached between runs so coverage accumulates across weeks. Beware
+  that GitHub disables cron workflows after 60 days without repository
+  activity.
 - `and_list` / `or_list` are declared (see `main.fuzz.ml`): their argument is a
   `list t`, whose elements Monolith draws from the previously produced BDDs in
   the environment. They are compositions of covered operations, but their

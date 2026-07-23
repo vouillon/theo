@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- CI: run the fuzzing harness in random mode for 60 s on every push/PR, and
+  weekly (or on demand) under afl++ with the corpus persisted between runs
+
 - Add a Monolith-based fuzzing harness (`fuzz/`) that tests Theo against a
   trusted truth-table reference model over arbitrary sequences of API calls
   (optionally driven by afl-fuzz), targeting history-dependence bugs through the

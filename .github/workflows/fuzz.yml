@@ -1,0 +1,109 @@
+name: Fuzz (afl)
+
+# Coverage-guided fuzzing of the Monolith harness (fuzz/) with afl++, on an
+# afl-instrumented OCaml switch. Runs weekly, and on demand via the Actions
+# tab (workflow_dispatch). The afl state (queue, fastresume) is persisted
+# between runs with the cache, so coverage accumulates across weeks instead of
+# restarting from a 16-byte seed every time.
+#
+# Note: GitHub disables cron workflows after 60 days without repository
+# activity; re-enable from the Actions tab (or run it manually) if that
+# happens.
+
+on:
+  schedule:
+    - cron: "17 3 * * 1" # every Monday, 03:17 UTC
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: "afl-fuzz run time in seconds"
+        default: "7200"
+
+# Never run two afl jobs concurrently: they would fight over the cached state.
+concurrency: fuzz-afl
+
+jobs:
+  afl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install afl++
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y afl++
+
+      - name: Configure the kernel for afl
+        run: sudo bash -c 'echo core > /proc/sys/kernel/core_pattern'
+
+      - name: Set up OCaml (afl-instrumented)
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: ocaml-variants.5.5.0+options,ocaml-option-afl
+          dune-cache: true
+
+      - name: Install dependencies
+        run: |
+          opam install . --deps-only
+          opam install --yes monolith
+
+      - name: Build the harness
+        run: opam exec -- dune build fuzz/main.exe
+
+      - name: Restore the afl state
+        uses: actions/cache/restore@v4
+        with:
+          path: afl-state
+          key: afl-state-${{ github.run_id }}
+          restore-keys: |
+            afl-state-
+
+      - name: Run afl-fuzz
+        env:
+          AFL_NO_UI: 1
+          AFL_SKIP_CPUFREQ: 1
+          # Resume from the cached state when present (afl ignores -i then).
+          AFL_AUTORESUME: 1
+        run: |
+          mkdir -p afl-input afl-state
+          dd if=/dev/urandom bs=16 count=1 of=afl-input/dummy
+          afl-fuzz -i afl-input -o afl-state \
+            -V "${{ github.event.inputs.duration || '7200' }}" \
+            -- _build/default/fuzz/main.exe @@
+
+      - name: Report statistics
+        if: always()
+        run: cat afl-state/default/fuzzer_stats
+
+      # Save with a unique key (cache entries are immutable); the next run
+      # restores the most recent one via the restore-keys prefix. Save even if
+      # the run found crashes, so they are not rediscovered from scratch.
+      - name: Save the afl state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: afl-state
+          key: afl-state-${{ github.run_id }}
+
+      - name: Check for discrepancies
+        run: |
+          crashes=$(find afl-state -path '*/crashes/id*' | wc -l)
+          echo "discrepancies found: $crashes"
+          if [ "$crashes" -gt 0 ]; then
+            # Replay each crashing input to print its scenario in the log.
+            find afl-state -path '*/crashes/id*' | while read -r f; do
+              echo "=== $f ==="
+              opam exec -- dune exec fuzz/main.exe -- "$f" || true
+            done
+            exit 1
+          fi
+
+      - name: Upload crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: afl-crashes
+          path: afl-state/*/crashes/

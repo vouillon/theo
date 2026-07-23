@@ -35,3 +35,29 @@ jobs:
 
       - name: Run tests
         run: opam exec -- dune runtest
+
+  # Random-mode fuzzing smoke test: run the Monolith harness (fuzz/) against
+  # the reference model for 60 s. Catches gross regressions on every change;
+  # the deep coverage-guided runs live in fuzz.yml (weekly).
+  fuzz-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.5.x
+          dune-cache: true
+
+      - name: Install dependencies
+        run: |
+          opam install . --deps-only --with-test
+          opam install --yes monolith
+
+      - name: Run the harness in random mode
+        # Exits 1 if any candidate/model disagreement is found; the failing
+        # scenarios are printed to stdout.
+        run: opam exec -- dune exec fuzz/main.exe -- --timeout 60 --save-scenario false
