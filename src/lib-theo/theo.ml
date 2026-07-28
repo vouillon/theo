@@ -70,12 +70,18 @@ module Make (T : Theory) = struct
       | Theory d -> Printf.sprintf "$%d %s" var (T.to_string d)
 
     let next_atom_id = ref 0
-    let atom_tbl = WeakTbl.create 512
+
+    (* The table sits in a reference so that [reset_state] can replace it with
+       a fresh one; clearing it in place would keep the bucket array it has
+       grown to, and the fuzzing harness needs every scenario to see the exact
+       same table geometry. *)
+    let initial_atom_tbl_size = 512
+    let atom_tbl = ref (WeakTbl.create initial_atom_tbl_size)
 
     let make var category payload =
       let id = !next_atom_id in
       let atom = Atom { var; category; payload; id } in
-      let (Atom { id = id'; _ } as atom') = WeakTbl.merge atom_tbl atom in
+      let (Atom { id = id'; _ } as atom') = WeakTbl.merge !atom_tbl atom in
       if Int.equal id id' then incr next_atom_id;
       atom'
 
@@ -396,7 +402,10 @@ module Make (T : Theory) = struct
 
     let equal (t : positive u) (t' : positive u) = t == t'
     let hash = id
-    let weak_tbl = WeakTbl.create 2048
+
+    (* In a reference for the same reason as [Atom.atom_tbl]. *)
+    let initial_weak_tbl_size = 2048
+    let weak_tbl = ref (WeakTbl.create initial_weak_tbl_size)
     let next_id = ref 1
 
     (* Hash-consing constructor: ensures each unique node has exactly one
@@ -404,7 +413,7 @@ module Make (T : Theory) = struct
     let ite atom high negate_high low =
       let id = !next_id in
       let node =
-        WeakTbl.merge weak_tbl (If { atom; high; negate_high; low; id })
+        WeakTbl.merge !weak_tbl (If { atom; high; negate_high; low; id })
       in
       match node with
       | If { id = id'; _ } when Int.equal id id' ->
@@ -1390,8 +1399,8 @@ module Make (T : Theory) = struct
       Printf.printf "    Entries : %d\n" entries;
       Printf.printf "    Length  : %d\n" len
     in
-    print_weak "Atom Hashcons" (Atom.WeakTbl.stats Atom.atom_tbl);
-    print_weak "Node Node Hashcons" (Node.WeakTbl.stats Node.weak_tbl);
+    print_weak "Atom Hashcons" (Atom.WeakTbl.stats !Atom.atom_tbl);
+    print_weak "Node Node Hashcons" (Node.WeakTbl.stats !Node.weak_tbl);
     print_ephemeron "Simplify Cache"
       (Simplify_cache.Table.stats Simplify_cache.cache)
       (Simplify_cache.Table.stats_alive Simplify_cache.cache);
@@ -1405,6 +1414,37 @@ module Make (T : Theory) = struct
       (Binary_cache.Store.stats Binary_cache.cache)
       (Binary_cache.Store.stats_alive Binary_cache.cache);
     flush stdout
+
+  (* Restore the state this module had at program startup: empty hash-consing
+     tables, empty memoization caches, and identifier counters back to their
+     initial values.
+
+     This exists for the fuzzing harness (fuzz/). afl's persistent mode runs a
+     thousand test scenarios in a single process, so without this the tables
+     and the identifier counters carry over from one scenario to the next; the
+     coverage bitmap then depends on the whole history of the process rather
+     than on the current input, which afl reports as low "stability" and which
+     wastes most of its bookkeeping. See fuzz/README.md.
+
+     Resetting the identifier counters is what makes this effective, and it is
+     also what makes it dangerous: it is UNSOUND to call this function while
+     any previously built BDD is still reachable. Identifiers would then be
+     handed out twice, and structurally equal atoms or nodes on either side of
+     the reset would no longer be physically equal, which is an invariant the
+     algorithms above rely on. [true_] and [false_] hold no node and are the
+     only values that survive a reset. *)
+  let reset_state () =
+    Atom.atom_tbl := Atom.WeakTbl.create Atom.initial_atom_tbl_size;
+    Atom.next_atom_id := 0;
+    Node.weak_tbl := Node.WeakTbl.create Node.initial_weak_tbl_size;
+    Node.next_id := 1;
+    (* [reset] (unlike [clear]) also shrinks the bucket array back to the size
+       the table was created with, which the weak tables above have no
+       equivalent of -- hence the references there. *)
+    Simplify_cache.Table.reset Simplify_cache.cache;
+    ITE_cache.Store.reset ITE_cache.cache;
+    Binary_cache.Store.reset Binary_cache.cache;
+    ITE_constant_cache.Store.reset ITE_constant_cache.cache
 end
 
 module type Formula = sig

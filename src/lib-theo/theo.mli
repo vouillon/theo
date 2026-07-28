@@ -507,6 +507,21 @@ module Make (T : Theory) : sig
 
   val atom : 'kind Var.t -> 'kind category -> 'kind desc -> t
   (** Low-level function to build atom formulas *)
+
+  val reset_state : unit -> unit
+  (** [reset_state ()] restores the state this module had at program startup:
+      empty hash-consing tables, empty caches, and identifier counters back to
+      their initial values.
+
+      This exists for the fuzzing harness (see [fuzz/README.md]), which needs
+      every test scenario to start from an identical state so that afl's
+      coverage measurements do not depend on the history of the process.
+
+      It is {b unsound} to call this while any previously built BDD is still
+      reachable: identifiers are handed out again from the start, so
+      structurally equal atoms or nodes built on either side of the reset are no
+      longer physically equal, and the algorithms rely on that. [true_] and
+      [false_] hold no node and are the only values that survive a reset. *)
 end
 
 (** The abstract interface for "formulas". This abstraction allows syntax

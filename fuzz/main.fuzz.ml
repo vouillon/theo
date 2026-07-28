@@ -188,9 +188,48 @@ let () =
       | None, None -> true
       | Some _, None | None, Some _ -> false)
 
+(* The prologue runs at the beginning of every scenario, just after Monolith
+   has restored its own global state. Its job is to make every scenario start
+   from the state the process had at startup, which is what afl's persistent
+   mode needs: it runs a thousand scenarios in one process, and anything
+   carried from one scenario to the next makes the coverage bitmap a function
+   of the whole history of the process rather than of the current input. afl
+   calls that instability, and lets its scoring, culling and havoc budgeting
+   degrade accordingly. It also costs reproducibility: a failure that needed
+   state left behind by an earlier scenario would not reproduce from the
+   scenario Monolith prints.
+
+   Two things have to be reset; both were measured (fuzz/README.md has the
+   numbers).
+
+   [F.reset_state] empties the hash-consing tables and the caches and rewinds
+   the atom/node identifier counters. The counters are the important part: the
+   caches are keyed on node identifiers, so if a scenario's nodes are numbered
+   from wherever the previous scenario stopped, they land in different buckets
+   and the paths taken inside the caches differ. Stability: 64% -> 79%.
+
+   [Gc.full_major] is needed because the caches are ephemerons and the
+   hash-consing tables are weak: whether a memoized result is still there when
+   it is looked up depends on when the collector last ran, which otherwise
+   depends on how much the previous scenarios allocated. Collecting everything
+   here puts the collector at the same point at the start of every scenario.
+   Stability: 79% -> 99.8%, and it costs nothing measurable, because
+   [reset_state] has just made almost the whole heap unreachable.
+
+   [reset_state] is unsound while any BDD built earlier is still reachable
+   (see theo.mli). That holds here: Monolith has just dropped the previous
+   scenario's environment, and the only Theo values this file keeps alive
+   across scenarios are [F.true_] and [F.false_], which hold no node. The
+   variable pools in [Model] are plain integers, not atoms, so they are
+   unaffected too -- but note that memoising an atom or a BDD at module
+   initialisation time in [Model] would break this. *)
+let prologue () =
+  F.reset_state ();
+  Gc.full_major ()
+
 (* Fuel is the maximum scenario length. The cache-history bugs this harness
    targets need scenarios long enough to populate a cache and then hit the
    poisoned entry, so we default a little above Monolith's usual 15; in afl
    mode this cap also bounds how long the sequences grown by the corpus
    evolution can get. The command line can override it (--fuel N). *)
-let () = main 25
+let () = main ~prologue 25

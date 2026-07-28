@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fuzzing: start every Monolith scenario from a pristine state, which takes
+  afl's stability from 64% to 99.8% (the remaining 0.2% is the framework's
+  first iteration). The harness prologue calls a new undocumented
+  `Make.reset_state` -- which empties the hash-consing tables and caches and
+  rewinds the atom/node identifier counters -- followed by `Gc.full_major`,
+  needed because the caches are ephemerons and the hash-consing tables weak.
+  See `fuzz/README.md` for the measurements. The hash-consing tables now live
+  in a reference so that they can be replaced rather than cleared in place.
 - CI: run the fuzzing harness in random mode for 60 s on every push/PR, and
   weekly (or on demand) under afl++ with the corpus persisted between runs
 

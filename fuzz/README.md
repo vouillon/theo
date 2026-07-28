@@ -89,6 +89,58 @@ targets from Monolith's Makefile: `make random` (afl switch, no afl-fuzz),
 (decode discovered crashes), `make min` (minimise crashing inputs with
 `afl-tmin`), `make clean`.
 
+### Stability: why the harness resets Theo before every scenario
+
+afl runs the harness in **persistent mode**: Monolith's `AflPersistent.run`
+executes a thousand scenarios in a single process, without forking in between
+(`afl-persistent`, and `waitpid(WUNTRACED)` in the OCaml runtime's forkserver).
+Whatever a scenario leaves behind is therefore visible to the next one, and any
+such carry-over makes the coverage bitmap a function of the *history of the
+process* instead of the current input. afl calls this **stability** (shown in
+its UI, and as `stability` in `output/default/fuzzer_stats`) and it matters:
+unstable edges make afl mis-attribute coverage to inputs, keep queue entries
+that are not really new, and waste its scoring, culling and havoc budgeting.
+It also costs reproducibility -- a failure that needs state left by an earlier
+scenario would not reproduce from the scenario Monolith prints.
+
+The harness therefore runs a prologue (see `main.fuzz.ml`) before every
+scenario, which does two things. Measured on a 120 s run, 16-byte seed, fresh
+output directory:
+
+| prologue                                | stability | variable edges | execs/s |
+| --------------------------------------- | --------- | -------------- | ------- |
+| none (before this was investigated)     | 63.6%     | 1057 / 2902    | 909     |
+| `Gc.full_major` alone                   | 62.8%     | 1087 / 2925    | 657     |
+| `Theo.reset_state`                      | 74-79%    | 610-764        | 890-1170|
+| `reset_state` + `Gc.full_major`         | **99.8%** | **6** / 2801   | 1123    |
+
+- `reset_state` (an undocumented entry point of `Theo.Make`, see `theo.mli`)
+  empties the hash-consing tables and the caches and rewinds the atom and node
+  identifier counters. The counters are the essential part: the caches are
+  keyed on node identifiers, so numbering a scenario's nodes from wherever the
+  previous scenario stopped puts them in different buckets and changes the code
+  paths taken inside the caches. It is unsound to call it while any BDD built
+  earlier is still reachable; the prologue comment explains why that is safe
+  here.
+- `Gc.full_major` is needed because the caches are ephemerons and the
+  hash-consing tables are weak: whether a memoized result is still there when
+  it is looked up depends on when the collector last ran, which otherwise
+  depends on how much the previous scenarios allocated. Collecting first puts
+  the collector in the same state at the start of every scenario. It is not
+  slow here, because `reset_state` has just made almost the whole heap
+  unreachable.
+
+The 6 edges that still vary are not ours: they are the first iteration of each
+process, and Monolith's own `stack` demo shows exactly the same 6
+(`var_byte_count : 6`, stability 98.9%). 99.8% is therefore as good as this
+framework gets.
+
+The prologue also runs in random mode, where stability is irrelevant but
+per-scenario independence still buys reproducibility. It costs roughly half the
+scenarios per second there (~1.8K/s to ~0.9K/s) without costing detection
+power: with the historical `ITE_constant_cache` polarity bug reintroduced,
+60 s of random mode finds it either way (4-8 saved scenarios, prologue or not).
+
 ### Reproducing a scenario
 
 Monolith prints a self-describing scenario (a sequence of `let` bindings ending
