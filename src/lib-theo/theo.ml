@@ -614,22 +614,26 @@ module Make (T : Theory) = struct
       | None -> None
       | Some cell -> if is_neg then cell.neg else cell.pos
 
-    let add u g w res =
-      let is_neg, v = split g in
+    (* [cell u v w] returns the cell for the key (u, v, w), creating an empty
+       one if there is none, so that a miss costs a single lookup: the caller
+       computes the result and stores it with [set]. *)
+    let cell u v w =
       let keys = [| u; v; w |] in
-      let cell =
-        match Store.find_opt cache keys with
-        | Some c -> c
-        | None ->
-            let c = empty_cell () in
-            Store.add cache keys c;
-            c
-      in
-      if is_neg then cell.neg <- Some res else cell.pos <- Some res
+      match Store.find_opt cache keys with
+      | Some c -> c
+      | None ->
+          let c = empty_cell () in
+          Store.add cache keys c;
+          c
+
+    let get c is_neg = if is_neg then c.neg else c.pos
+
+    let set c is_neg res =
+      if is_neg then c.neg <- Some res else c.pos <- Some res
   end
 
   (* Binary cache: stores results of binary operations (AND) for all polarity
-   combinations of (u, v). Key is (|u|, |v|).
+   combinations of (u, v). Key is (|u|, |v|), ordered by node id.
    We store:
      pp: |u| & |v|
      pn: |u| & !|v|
@@ -650,25 +654,23 @@ module Make (T : Theory) = struct
 
     let cache = Store.create 4096
 
-    let find u_pos v_pos u_neg v_neg =
+    (* As in [ITE_cache]. *)
+    let cell u_pos v_pos =
       match Store.find_opt cache (u_pos, v_pos) with
-      | None -> None
-      | Some c -> (
-          match (u_neg, v_neg) with
-          | false, false -> c.pp
-          | false, true -> c.pn
-          | true, false -> c.np
-          | true, true -> c.nn)
+      | Some c -> c
+      | None ->
+          let c = empty_cell () in
+          Store.add cache (u_pos, v_pos) c;
+          c
 
-    let add u_pos v_pos u_neg v_neg res =
-      let c =
-        match Store.find_opt cache (u_pos, v_pos) with
-        | Some c -> c
-        | None ->
-            let c = empty_cell () in
-            Store.add cache (u_pos, v_pos) c;
-            c
-      in
+    let get c u_neg v_neg =
+      match (u_neg, v_neg) with
+      | false, false -> c.pp
+      | false, true -> c.pn
+      | true, false -> c.np
+      | true, true -> c.nn
+
+    let set c u_neg v_neg res =
       match (u_neg, v_neg) with
       | false, false -> c.pp <- Some res
       | false, true -> c.pn <- Some res
@@ -690,7 +692,9 @@ module Make (T : Theory) = struct
       else if Bdd.are_complement f g then ite f false_ h
       else if Bdd.equal f h then ite f g false_
       else
-        match ITE_cache.find u g w with
+        let is_neg, v = split g in
+        let cell = ITE_cache.cell u v w in
+        match ITE_cache.get cell is_neg with
         | Some res -> res
         | None ->
             let v_f = top_atom f in
@@ -706,7 +710,7 @@ module Make (T : Theory) = struct
             let r_low = ite f_low g_low h_low in
 
             let res = make_node top r_high r_low in
-            ITE_cache.add u g w res;
+            ITE_cache.set cell is_neg res;
             res
     in
     match (f, g, h) with
@@ -746,25 +750,20 @@ module Make (T : Theory) = struct
 
     let cache = Store.create 1024
 
-    let find u g w =
-      let is_neg, v = split g in
+    (* As in [ITE_cache]. *)
+    let cell u v w =
       let keys = [| u; v; w |] in
       match Store.find_opt cache keys with
-      | None -> None
-      | Some cell -> if is_neg then cell.neg else cell.pos
+      | Some c -> c
+      | None ->
+          let c = empty_cell () in
+          Store.add cache keys c;
+          c
 
-    let add u g w res =
-      let is_neg, v = split g in
-      let keys = [| u; v; w |] in
-      let cell =
-        match Store.find_opt cache keys with
-        | Some c -> c
-        | None ->
-            let c = empty_cell () in
-            Store.add cache keys c;
-            c
-      in
-      if is_neg then cell.neg <- Some res else cell.pos <- Some res
+    let get c is_neg = if is_neg then c.neg else c.pos
+
+    let set c is_neg res =
+      if is_neg then c.neg <- Some res else c.pos <- Some res
   end
 
   let rec ite_constant f g h =
@@ -778,7 +777,9 @@ module Make (T : Theory) = struct
           | Bdd _ -> NonConstant)
       | None -> (
           (* Check Constant_cache *)
-          match ITE_constant_cache.find u g w with
+          let is_neg, v = split g in
+          let cell = ITE_constant_cache.cell u v w in
+          match ITE_constant_cache.get cell is_neg with
           | Some res -> res
           | None ->
               let v_f = top_atom f in
@@ -801,7 +802,7 @@ module Make (T : Theory) = struct
                         if high_val = low_val then Constant high_val
                         else NonConstant)
               in
-              ITE_constant_cache.add u g w res;
+              ITE_constant_cache.set cell is_neg res;
               res)
     in
     match (f, g, h) with
@@ -977,7 +978,7 @@ module Make (T : Theory) = struct
   end
 
   let restrict_impl t max_var eval_atom =
-    let visited = IdTbl.create 1024 in
+    let visited = IdTbl.create 16 in
     let rec visit u =
       let id = Node.id u in
       match IdTbl.find_opt visited id with
@@ -1019,9 +1020,28 @@ module Make (T : Theory) = struct
             let eval_atom atom' = eval_atom (Atom atom) value atom' in
             restrict_impl t v eval_atom
         | _ when List.compare_length_with constraints 5 <= 0 ->
-            (* Validate the constraints with a full store, but evaluate atoms
-               by scanning the short list directly. *)
-            if Constraints.create constraints = None then false_
+            (* Evaluate atoms by scanning the short list directly, without
+               building a constraint store. The constraints are consistent
+               iff no two of them contradict each other: bounds on a line
+               conflict only through some lower/upper pair, and equalities
+               through two distinct constants or a constant and its own
+               disequality. *)
+            let contradicts { atom; value } { atom = atom'; value = value' } =
+              match eval_atom atom value atom' with
+              | Some v -> v <> value'
+              | None -> false
+            in
+            let rec consistent l =
+              match l with
+              | [] -> true
+              | c :: r ->
+                  List.for_all
+                    (fun c' ->
+                      Stdlib.not (contradicts c c' || contradicts c' c))
+                    r
+                  && consistent r
+            in
+            if Stdlib.not (consistent constraints) then false_
             else
               let max_var =
                 List.fold_left
@@ -1086,11 +1106,18 @@ module Make (T : Theory) = struct
       ->
         false_
     | u, v -> (
-        (* Canonical ordering: ensure u < v by ID *)
-        let u, v = if Bdd.compare u v < 0 then (u, v) else (v, u) in
+        (* Canonical ordering by the ids of the positive nodes, so that the
+           four polarity combinations of a pair share one cache cell (the
+           cases above ensure that the two positive nodes are distinct). *)
         let u_neg, u_pos = split u in
         let v_neg, v_pos = split v in
-        match Binary_cache.find u_pos v_pos u_neg v_neg with
+        let u_neg, u_pos, v_neg, v_pos =
+          if Node.id u_pos < Node.id v_pos then (u_neg, u_pos, v_neg, v_pos)
+          else (v_neg, v_pos, u_neg, u_pos)
+        in
+        let u = with_polarity u_neg u_pos and v = with_polarity v_neg v_pos in
+        let cell = Binary_cache.cell u_pos v_pos in
+        match Binary_cache.get cell u_neg v_neg with
         | Some res -> res
         | None ->
             let tu = top_atom u in
@@ -1101,7 +1128,7 @@ module Make (T : Theory) = struct
             let h = and_rec uh vh in
             let l = and_rec ul vl in
             let res = make_node top h l in
-            Binary_cache.add u_pos v_pos u_neg v_neg res;
+            Binary_cache.set cell u_neg v_neg res;
             res)
 
   let and_ = and_rec
@@ -1135,7 +1162,7 @@ module Make (T : Theory) = struct
   let quantify combine_op (type a) (v : a Var.t) (t : t) : t =
     let target_var = v in
     (* Cache: keyed by (id, polarity) *)
-    let visited = IdTbl.create 1024 in
+    let visited = IdTbl.create 16 in
     let rec visit negate u =
       let id = Node.id u in
       let key = (id lsl 1) lor if negate then 1 else 0 in
@@ -1409,28 +1436,52 @@ module Make (T : Theory) = struct
        literal implied (modulo theory) by the remaining literals. Any drop order
        yields a prime cube. *)
     let prime_cube cube =
-      let rec go kept remaining =
+      (* As in [drop_redundant_cubes] below, the conjunctions of the
+         literals not yet visited are computed once, up front, and the
+         conjunction of the kept literals is maintained incrementally. *)
+      let bdds = Array.of_list (List.map (fun lit -> of_cube [ lit ]) cube) in
+      let n = Array.length bdds in
+      (* [suffix.(i)] is the conjunction of the literals from index [i] on. *)
+      let suffix = Array.make (n + 1) true_ in
+      for i = n - 1 downto 0 do
+        suffix.(i) <- and_ bdds.(i) suffix.(i + 1)
+      done;
+      let rec go i kept kept_bdd remaining =
         match remaining with
-        | [] -> kept
+        | [] -> List.rev kept
         | lit :: rest ->
-            (* [kept @ rest] is the cube with [lit] removed. *)
-            if logical_implies (of_cube (kept @ rest)) t then go kept rest
-            else go (kept @ [ lit ]) rest
+            (* [and_ kept_bdd suffix.(i + 1)] is the cube with [lit]
+               removed. *)
+            if logical_implies (and_ kept_bdd suffix.(i + 1)) t then
+              go (i + 1) kept kept_bdd rest
+            else go (i + 1) (lit :: kept) (and_ kept_bdd bdds.(i)) rest
       in
-      go [] cube
+      go 0 [] true_ cube
     in
     (* Drop any cube whose removal leaves the cover equivalent (modulo theory)
        to [t]. Maintains the invariant that [kept @ remaining] still covers
-       [t]. *)
+       [t]. The cubes not yet visited never change, so the disjunctions of
+       every suffix of the list are computed once, up front, and the
+       disjunction of the kept cubes is maintained incrementally: each cube
+       then costs a constant number of BDD operations instead of rebuilding
+       the cover from scratch. *)
     let drop_redundant_cubes cubes =
-      let rec go kept remaining =
+      let bdds = Array.of_list (List.map of_cube cubes) in
+      let k = Array.length bdds in
+      (* [suffix.(i)] is the disjunction of the cubes from index [i] on. *)
+      let suffix = Array.make (k + 1) false_ in
+      for i = k - 1 downto 0 do
+        suffix.(i) <- or_ bdds.(i) suffix.(i + 1)
+      done;
+      let rec go i kept kept_bdd remaining =
         match remaining with
-        | [] -> kept
+        | [] -> List.rev kept
         | cube :: rest ->
-            if equal (sop_to_bdd (kept @ rest)) t then go kept rest
-            else go (kept @ [ cube ]) rest
+            if equal (or_ kept_bdd suffix.(i + 1)) t then
+              go (i + 1) kept kept_bdd rest
+            else go (i + 1) (cube :: kept) (or_ kept_bdd bdds.(i)) rest
       in
-      go [] cubes
+      go 0 [] false_ cubes
     in
     let cubes = minato_sop t in
     if needs_theory_refinement t then

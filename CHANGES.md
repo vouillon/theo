@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Performance:
+  - `restrict` and `exists`/`forall` no longer allocate a 1024-bucket table
+    on every call: 15-20x faster on small formulas
+  - `restrict` checks the consistency of 2 to 5 constraints pairwise instead
+    of building a constraint store: 2x faster on such lists
+  - `irredundant_sop` post-processing is linear in the number of cubes
+    instead of quadratic (13x faster on an 831-cube cover); the covers are
+    unchanged
+  - The memoization caches look up each key once instead of twice on a miss,
+    and the AND cache keeps all four polarity combinations of a pair in one
+    cell (8% faster on 8-queens)
 - Fix `print_dot`: escape atom labels, so that a theory whose `to_string`
   produces quotes or backslashes (e.g. strings printed with `%S`) no longer
   yields invalid DOT; and draw low edges dashed, so that they can be told

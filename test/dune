@@ -7,6 +7,7 @@
   test_isop
   test_logical_checks
   test_combine_same_theory
+  test_restrict_paths
   repro_recursion
   test_properties
   test_model

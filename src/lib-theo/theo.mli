@@ -460,10 +460,10 @@ module Make (T : Theory) : sig
       purely Boolean expressions), since it cannot change the cover then.
 
       Complexity: the Minato-Morreale recursion is memoized on the
-      [(lower, upper)] interval. Producing [k] cubes then costs O(k²)
-      theory-aware BDD operations for the post-processing when it runs. Note
-      [k], the size of an irredundant cover, can itself be exponential in the
-      number of atoms in the worst case. *)
+      [(lower, upper)] interval. When the post-processing runs, producing [k]
+      cubes of at most [n] literals then costs O(k·n) theory-aware BDD
+      operations. Note [k], the size of an irredundant cover, can itself be
+      exponential in the number of atoms in the worst case. *)
 
   val of_cube : atomic_constraint list -> t
   (** [of_cube cube] builds the conjunction (product) of the literals in [cube].
