@@ -2,6 +2,13 @@
 
 Theo is a **Binary Decision Diagram (BDD)** library for OCaml. It provides efficient boolean logic manipulation with support for theory reasoning over **linear orders and equality** (including booleans, strings, integers, and semantic versions).
 
+The theories reason as if orders were dense and unbounded and types had
+infinitely many values. Answers are always sound, but some facts that hold
+only for discrete, bounded or finite types are missed: over integers,
+`x > 5 && x < 6` is considered satisfiable. The
+[API documentation](https://vouillon.github.io/theo/theo/Theo/) of `Leq` and
+`Eq` explains how to get exact answers.
+
 ## Documentation
 
 The API documentation is available online at: [https://vouillon.github.io/theo/theo/Theo/](https://vouillon.github.io/theo/theo/Theo/)

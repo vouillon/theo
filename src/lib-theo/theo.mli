@@ -4,6 +4,12 @@
     with support for theory reasoning over linear orders and equality (including
     booleans, strings, integers, semantic versions).
 
+    The theories know only how atoms relate to one another, not the values of
+    the type: {!Leq} reasons as if the order were dense and unbounded, and {!Eq}
+    as if the type had infinitely many values. Answers are always sound, but can
+    be incomplete for discrete, bounded or finite types; see their
+    documentation.
+
     BDDs are canonical representations of boolean functions that enable
     efficient logical operations and satisfiability checking through
     hash-consing and memoization.
@@ -638,10 +644,41 @@ module type Primitive_theory = sig
      theory (e.g. specialized implications for linear orders). *)
 end
 
-(** The theory of linear order (<=, <, =, <>). *)
+(** The theory of linear order (<=, <, =, <>).
+
+    Atoms are upper bounds on a variable: [Bound { limit; inclusive }] stands
+    for [v <= limit] if [inclusive] holds and for [v < limit] otherwise; the
+    other comparisons are their negations and conjunctions (see [Syntax]).
+    [C.compare] must be a total order.
+
+    {b Semantics:} Theo knows only how the bounds relate to one another, so it
+    reasons as if [C.t] were a {e dense} order with no least or greatest
+    element. A conjunction of bounds is satisfiable whenever its lower bound
+    lies below its upper bound, or equals it when both are inclusive (as in
+    [v >= x && v <= x]). For a discrete or bounded type, such as [int], semantic
+    versions or strings, this misses some facts. Over [int]:
+    - [v > 5 && v < 6] is satisfiable, and [sat] returns it as a model;
+    - [v <= 5 || v >= 6] is not a tautology;
+    - [v = 5] and [v >= 5 && v < 6] are not [equal];
+    - [v < 0] is satisfiable even if [C] contains no negative value.
+
+    The answers are sound for every linear order, but may be incomplete: when
+    Theo reports a formula unsatisfiable, a tautology, or an implication
+    ([logical_implies]), this holds for [C] too. When it reports satisfiability
+    or non-equivalence, the witness may involve values that do not exist in [C].
+
+    To get exact answers for a discrete type, build every bound with [<] and
+    [>=] only, e.g. write [v > 5] as [v >= 6] and [v = 5] as [v >= 5 && v < 6].
+    Every interval Theo then considers contains its lower end, so the reasoning
+    is exact for any linear order, except that [v < x] is still considered
+    satisfiable when [x] is the least element of [C]. *)
 module Leq (C : Comparable) : sig
   type kind
-  type _ t = Bound : { limit : C.t; inclusive : bool } -> kind t
+
+  type _ t =
+    | Bound : { limit : C.t; inclusive : bool } -> kind t
+        (** [Bound { limit; inclusive }] is [v <= limit] if [inclusive], and
+            [v < limit] otherwise. *)
 
   include
     Primitive_theory
@@ -649,14 +686,27 @@ module Leq (C : Comparable) : sig
        and type 'kind t := 'kind t
        and type elt = C.t
 
+  (** Comparison operators. [<] and [>=] use the strict bound [v < x]; [<=] and
+      [>] use the inclusive bound [v <= x]; [=] and [<>] use both (see the
+      semantics note above). *)
   module Syntax (F : Formula with type 'kind desc = 'kind t) : sig
     val lt : kind Var.t -> elt -> F.t
+    (** Same as [( < )]. *)
+
     val le : kind Var.t -> elt -> F.t
+    (** Same as [( <= )]. *)
+
     val ( <= ) : kind Var.t -> elt -> F.t
     val ( < ) : kind Var.t -> elt -> F.t
+
     val ( >= ) : kind Var.t -> elt -> F.t
+    (** [v >= x] is [not (v < x)]. *)
+
     val ( > ) : kind Var.t -> elt -> F.t
+    (** [v > x] is [not (v <= x)]. *)
+
     val ( = ) : kind Var.t -> elt -> F.t
+    (** [v = x] is [v <= x && v >= x]. *)
 
     val ( <> ) : kind Var.t -> elt -> F.t
     (** [v <> x] is equivalent to [v < x || v > x].
@@ -666,10 +716,24 @@ module Leq (C : Comparable) : sig
   end
 end
 
-(** The theory of equality (=, <>). *)
+(** The theory of equality (=, <>).
+
+    Atoms are equalities [v = c]; [v <> c] is their negation.
+
+    {b Semantics:} Theo knows only that a variable equals at most one constant,
+    so it reasons as if [C.t] had infinitely many values: any conjunction of
+    disequalities is satisfiable. The answers are exact when [C.t] is infinite,
+    such as [string] or [int]. For a finite type, they are sound but may be
+    incomplete, as for {!Leq}: unsatisfiability, tautologies and implications
+    that Theo reports hold, but over [{A, B}]:
+    - [v = A || v = B] is not a tautology;
+    - [v <> A && v <> B] is satisfiable, and [sat] returns it as a model.
+
+    For a type with few values, a boolean variable per value, constrained to
+    exactly one being true, gives exact answers. *)
 module Eq (C : Comparable) : sig
   type kind
-  type _ t = Const : C.t -> kind t
+  type _ t = Const : C.t -> kind t  (** [Const c] is [v = c]. *)
 
   include
     Primitive_theory
