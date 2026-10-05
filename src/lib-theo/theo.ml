@@ -350,9 +350,29 @@ module Make (T : Theory) = struct
     print 0 t;
     Buffer.contents buf
 
+  (* Escape [s] for use inside a double-quoted DOT string. Backslashes must
+     be doubled too: in a label, Graphviz interprets [\n], [\l], [\N] and the
+     like. *)
+  let dot_escape s =
+    let buf = Buffer.create (String.length s) in
+    String.iter
+      (function
+        | '"' -> Buffer.add_string buf "\\\""
+        | '\\' -> Buffer.add_string buf "\\\\"
+        | '\n' -> Buffer.add_string buf "\\n"
+        | c -> Buffer.add_char buf c)
+      s;
+    Buffer.contents buf
+
+  (* Edge conventions: the high edge (atom true) is solid, the low edge
+     (atom false) dashed, and an [odot] arrowhead marks a negated edge. A
+     negated edge to [False] is drawn as a plain edge to the [True] node, and a
+     negated root as a "¬" node above the positive BDD. *)
   let print_dot (chan : out_channel) (t : t) : unit =
     let visited = IdTbl.create 16 in
     Printf.fprintf chan "digraph G {\n";
+    Printf.fprintf chan
+      "  // solid: high (atom true), dashed: low, odot arrowhead: negated\n";
     let rec traverse : type a. a u -> unit =
      fun u ->
       let id = Bdd.id (Bdd u) in
@@ -365,25 +385,22 @@ module Make (T : Theory) = struct
             Printf.fprintf chan "  %d [label=\"¬\", shape=circle];\n" id;
             Printf.fprintf chan "  %d -> %d;\n" id (Bdd.id (Bdd u'));
             traverse u'
-        | If { atom; high = False; negate_high = true; low; id } ->
-            Printf.fprintf chan "  %d [label=\"%s\"];\n" id
-              (Atom.to_string atom);
-            let low_id = Bdd.id (Bdd low) in
-            let true_ = Not False in
-            Printf.fprintf chan "  %d -> %d [style=solid];\n" id
-              (Bdd.id (Bdd true_));
-            traverse true_;
-            Printf.fprintf chan "  %d -> %d [style=solid];\n" id low_id;
-            traverse low
         | If { atom; high; negate_high; low; id } ->
             Printf.fprintf chan "  %d [label=\"%s\"];\n" id
-              (Atom.to_string atom);
-            let high_id = Bdd.id (Bdd high) in
-            let low_id = Bdd.id (Bdd low) in
-            Printf.fprintf chan "  %d -> %d [style=%s];\n" id high_id
-              (if negate_high then "dashed" else "solid");
-            Printf.fprintf chan "  %d -> %d [style=solid];\n" id low_id;
-            traverse high;
+              (dot_escape (Atom.to_string atom));
+            (match (high, negate_high) with
+            | False, true ->
+                let true_ = Not False in
+                Printf.fprintf chan "  %d -> %d [style=solid];\n" id
+                  (Bdd.id (Bdd true_));
+                traverse true_
+            | _ ->
+                Printf.fprintf chan "  %d -> %d [style=solid%s];\n" id
+                  (Bdd.id (Bdd high))
+                  (if negate_high then ", arrowhead=odot" else "");
+                traverse high);
+            Printf.fprintf chan "  %d -> %d [style=dashed];\n" id
+              (Bdd.id (Bdd low));
             traverse low)
     in
     match t with

@@ -387,6 +387,13 @@ let test_dot_output () =
   F.print_dot stdout e;
   F.print_dot stdout F.false_;
   F.print_dot stdout F.true_;
+  (* A label with characters that need escaping: [String.to_string] quotes
+     its argument with %S. *)
+  let s = Theo.Var.fresh () in
+  F.print_dot stdout StringSyntax.(s = {|a"b\c|});
+  (* A negated high edge. *)
+  let b' = Theo.Var.fresh () in
+  F.print_dot stdout F.Syntax.(bool b <+> bool b');
   Printf.printf "  DOT output: OK\n";
   ()
 

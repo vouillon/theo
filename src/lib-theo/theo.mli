@@ -504,7 +504,9 @@ module Make (T : Theory) : sig
 
   val print_dot : out_channel -> t -> unit
   (** [print_dot chan expr] prints the BDD in Graphviz DOT format to the given
-      channel. *)
+      channel. The high edge of a node (atom true) is solid and its low edge
+      (atom false) dashed; an [odot] arrowhead marks a negated edge, and a
+      negated root is drawn as a ["¬"] node above the BDD. *)
 
   val print_stats : unit -> unit
   (** [print_stats ()] prints statistics for all internal caches (atom table,

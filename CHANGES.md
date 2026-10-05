@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fix `print_dot`: escape atom labels, so that a theory whose `to_string`
+  produces quotes or backslashes (e.g. strings printed with `%S`) no longer
+  yields invalid DOT; and draw low edges dashed, so that they can be told
+  apart from high edges, marking negated edges with an `odot` arrowhead
+  instead (both used to be solid, and dashed meant negated)
 - Fix unsound results with `Combine (A) (A)` (or any `Combine` whose two
   sides share a theory instance, so that one variable can carry atoms of
   both): atoms from different sides were reasoned about as one ordered

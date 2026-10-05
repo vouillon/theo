@@ -48,17 +48,39 @@ Testing variable ordering impact...
   Variable ordering check: OK (Expr size: 5)
 Testing DOT output...
 digraph G {
+  // solid: high (atom true), dashed: low, odot arrowhead: negated
   55 [label="$27"];
   55 -> -1 [style=solid];
   -1 [label="⊤", shape=box];
-  55 -> 0 [style=solid];
+  55 -> 0 [style=dashed];
   0 [label="⊥", shape=box];
 }
 digraph G {
+  // solid: high (atom true), dashed: low, odot arrowhead: negated
   0 [label="⊥", shape=box];
 }
 digraph G {
+  // solid: high (atom true), dashed: low, odot arrowhead: negated
   -1 [label="⊤", shape=box];
+}
+digraph G {
+  // solid: high (atom true), dashed: low, odot arrowhead: negated
+  56 [label="$28 = \"a\\\"b\\\\c\""];
+  56 -> -1 [style=solid];
+  -1 [label="⊤", shape=box];
+  56 -> 0 [style=dashed];
+  0 [label="⊥", shape=box];
+}
+digraph G {
+  // solid: high (atom true), dashed: low, odot arrowhead: negated
+  58 [label="$27"];
+  58 -> 57 [style=solid, arrowhead=odot];
+  57 [label="$29"];
+  57 -> -1 [style=solid];
+  -1 [label="⊤", shape=box];
+  57 -> 0 [style=dashed];
+  0 [label="⊥", shape=box];
+  58 -> 57 [style=dashed];
 }
   DOT output: OK
 Testing SAT...
