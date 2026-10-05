@@ -11,21 +11,13 @@ let c_bool v b = F.Constraint.bool v b
 
 (* String constraints *)
 (* String theory is the Right component of the combined theory *)
-(* Eq theory uses 'Eq category *)
-let c_str_eq v s = F.Constraint.atom v Eq.category (Right (Eq.Const s))
+let c_str_eq v s = StringCstr.eq v s
 let c_str_ne v s = F.Constraint.not (c_str_eq v s)
 
 (* Version constraints *)
 (* Version theory is the Left component *)
-(* Leq theory uses 'Leq category and Bound descriptor *)
-let c_ver_lt v ver =
-  F.Constraint.atom v Leq.category
-    (Left (Leq.Bound { limit = ver; inclusive = false }))
-
-let c_ver_le v ver =
-  F.Constraint.atom v Leq.category
-    (Left (Leq.Bound { limit = ver; inclusive = true }))
-
+let c_ver_lt v ver = VersionCstr.lt v ver
+let c_ver_le v ver = VersionCstr.le v ver
 let c_ver_ge v ver = F.Constraint.not (c_ver_lt v ver)
 let c_ver_gt v ver = F.Constraint.not (c_ver_le v ver)
 

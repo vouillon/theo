@@ -6,6 +6,7 @@
   test_shortest_sat
   test_isop
   test_logical_checks
+  test_combine_same_theory
   repro_recursion
   test_properties
   test_model

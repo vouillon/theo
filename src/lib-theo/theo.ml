@@ -9,7 +9,30 @@ module type Theory = sig
   val to_string : _ t -> string
 end
 
-type _ category = Bool | Leq | Eq
+(* The [int] argument of [Leq] and [Eq] is the {e sort} of the atom: it
+   identifies the primitive theory the atom comes from by its path through
+   nested [Combine]s (0 outside of any [Combine]; [Combine] maps sort [s] to
+   [2s + 1] on its left side and [2s + 2] on its right side, which keeps
+   sorts distinct). Atoms on the same variable are only reasoned about
+   jointly when they have the same category, sort included: with
+   [Combine (L) (L)], a variable can carry atoms of both sides, which must be
+   treated as independent. *)
+type _ category = Bool | Leq of int | Eq of int
+
+let same_category (type k k') (c : k category) (c' : k' category) =
+  match (c, c') with
+  | Bool, Bool -> true
+  | Leq s, Leq s' | Eq s, Eq s' -> Int.equal s s'
+  | (Bool | Leq _ | Eq _), _ -> false
+
+let sort_of (type k) (c : k category) =
+  match c with Bool -> -1 | Leq s | Eq s -> s
+
+let lift_category (type k) side (c : k category) : k category =
+  match c with
+  | Bool -> Bool
+  | Leq s -> Leq ((2 * s) + side)
+  | Eq s -> Eq ((2 * s) + side)
 
 (** Global variable management. *)
 module Var = struct
@@ -104,6 +127,11 @@ module Make (T : Theory) = struct
     let min a a' =
       let c = compare a a' in
       if c < 0 then a else a'
+
+    (* Whether two atoms belong to the same primitive theory instance on the
+       same variable, so that one can entail the other. *)
+    let related (Atom a) (Atom a') =
+      a.var = a'.var && same_category a.category a'.category
   end
 
   type atomic_constraint = { atom : atom; value : bool }
@@ -439,14 +467,15 @@ module Make (T : Theory) = struct
    [simplify_node] is only reached (via [prune] and [check_simplification])
    for an [Eq] atom [a] assumed true, with [a] strictly below [u]'s top atom
    in the BDD ordering. Hence [a] itself cannot occur in [u], and every
-   same-variable atom found along the low chain is a distinct equality on
-   that variable, i.e. false: we always take the low branch. The result --
-   the first node on another variable -- is therefore independent of [a],
-   which is why [Simplify_cache] is soundly keyed on the node alone. *)
+   related atom (see [Atom.related]) found along the low chain is a distinct
+   equality on that variable, i.e. false: we always take the low branch. The
+   result -- the first node whose atom is unrelated to [a] -- is therefore
+   independent of [a], which is why [Simplify_cache] is soundly keyed on the
+   node alone. *)
   let simplify_node (Atom a) (u : positive u) =
     let rec find_cached (Atom a) u =
       match u with
-      | If { atom = Atom atom; low; _ } when atom.var = a.var -> (
+      | If { atom; low; _ } when Atom.related atom (Atom a) -> (
           match Simplify_cache.find u with
           | Some res -> res
           | None ->
@@ -457,7 +486,7 @@ module Make (T : Theory) = struct
     in
     let rec skip (Atom a) count u =
       match u with
-      | If { atom = Atom atom; low; _ } when atom.var = a.var ->
+      | If { atom; low; _ } when Atom.related atom (Atom a) ->
           if count > 0 then skip (Atom a) (count - 1) low
           else find_cached (Atom a) u
       | _ -> u
@@ -467,21 +496,22 @@ module Make (T : Theory) = struct
   (* prune: Simplifies 'u' assuming atom 'v' is true. *)
   let prune (Atom a) (u : positive u) (Atom atom) (high : positive u)
       (negate_high : bool) (low : positive u) negate_result : t =
-    if a.var <> atom.var then with_polarity negate_result u
+    if Stdlib.not (Atom.related (Atom a) (Atom atom)) then
+      with_polarity negate_result u
     else
       match a.category with
       | Bool -> with_polarity negate_result u
-      | Leq -> with_polarity (negate_result <> negate_high) high
-      | Eq -> with_polarity negate_result (simplify_node (Atom a) low)
+      | Leq _ -> with_polarity (negate_result <> negate_high) high
+      | Eq _ -> with_polarity negate_result (simplify_node (Atom a) low)
 
   let check_simplification (Atom a) (Atom atom) (high : positive u)
       (negate_high : bool) (low : positive u) (target : t) : bool =
-    if a.var <> atom.var then false
+    if Stdlib.not (Atom.related (Atom a) (Atom atom)) then false
     else
       match a.category with
       | Bool -> false
-      | Leq -> Bdd.equal (with_polarity negate_high high) target
-      | Eq -> Bdd.equal (Bdd (simplify_node (Atom a) low)) target
+      | Leq _ -> Bdd.equal (with_polarity negate_high high) target
+      | Eq _ -> Bdd.equal (Bdd (simplify_node (Atom a) low)) target
 
   (* make_node: Constructs a BDD node, applying simplifications. Given
    the normalizations perform by [ite], [low] is always positive. *)
@@ -799,17 +829,17 @@ module Make (T : Theory) = struct
   let check (category : _ category) (v : 'kind T.t) b (v' : 'kind' T.t) =
     match category with
     | Bool -> assert false
-    | Leq ->
+    | Leq _ ->
         if b then if T.compare v v' <= 0 then Some true else None
         else if T.compare v v' >= 0 then Some false
         else None
-    | Eq ->
+    | Eq _ ->
         if b then if T.equal v v' then Some true else Some false
         else if T.equal v v' then Some false
         else None
 
   let eval_atom (Atom atom) b (Atom atom') =
-    if atom.var == atom'.var then
+    if Atom.related (Atom atom) (Atom atom') then
       match (atom.payload, atom'.payload) with
       | Bool, Bool -> Some b
       | Theory t, Theory t' -> check atom.category t b t'
@@ -827,12 +857,14 @@ module Make (T : Theory) = struct
 
     module DescSet = Set.Make (Desc)
 
+    (* Theory tables are keyed by (variable, sort): atoms of distinct sorts
+       on the same variable are independent (see [category]). *)
     type t = {
       bools : (int, bool) Hashtbl.t;
-      eq : (int, Desc.t) Hashtbl.t;
-      ne : (int, DescSet.t) Hashtbl.t;
-      lower : (int, Desc.t) Hashtbl.t; (* >= bound *)
-      upper : (int, Desc.t) Hashtbl.t; (* < bound *)
+      eq : (int * int, Desc.t) Hashtbl.t;
+      ne : (int * int, DescSet.t) Hashtbl.t;
+      lower : (int * int, Desc.t) Hashtbl.t; (* >= bound *)
+      upper : (int * int, Desc.t) Hashtbl.t; (* < bound *)
       mutable max_var : int;
     }
 
@@ -872,13 +904,15 @@ module Make (T : Theory) = struct
                 | Some value' when value <> value' ->
                     raise Exit (* Contradiction *)
                 | _ -> Hashtbl.replace store.bools var value)
-            | Leq, Theory desc -> (
+            | Leq s, Theory desc -> (
                 if var > store.max_var then store.max_var <- var;
+                let var = (var, s) in
                 match value with
                 | true -> update_upper var desc
                 | false -> update_lower var desc)
-            | Eq, Theory desc -> (
+            | Eq s, Theory desc -> (
                 if var > store.max_var then store.max_var <- var;
+                let var = (var, s) in
                 match value with
                 | true -> (
                     (* Check against existing NE constraints *)
@@ -901,7 +935,7 @@ module Make (T : Theory) = struct
                       | None -> DescSet.empty
                     in
                     Hashtbl.replace store.ne var (DescSet.add (Desc desc) set))
-            | (Leq | Eq), Bool -> assert false)
+            | (Leq _ | Eq _), Bool -> assert false)
           constraints;
         (* Final consistency check for versions *)
         Hashtbl.iter
@@ -993,33 +1027,34 @@ module Make (T : Theory) = struct
                 false_ (* Contradiction in constraints -> empty set -> false *)
             | Some store ->
                 let eval_atom (Atom atom) =
+                  let key = (atom.var, sort_of atom.category) in
                   match (atom.category, atom.payload) with
                   | Bool, _ -> Constraints.find_bool store atom.var
-                  | Leq, Theory desc ->
+                  | Leq _, Theory desc ->
                       (* Check implications from range *)
                       (* Atom is: var < v_atom (if !inc) or var <= v_atom (if inc) *)
                       let implies_true =
-                        match Constraints.find_upper_bound store atom.var with
+                        match Constraints.find_upper_bound store key with
                         | Some (Desc desc') -> T.compare desc' desc <= 0
                         | None -> false
                       in
                       if implies_true then Some true
                       else
                         let implies_false =
-                          match Constraints.find_lower_bound store atom.var with
+                          match Constraints.find_lower_bound store key with
                           | Some (Desc desc') -> T.compare desc desc' <= 0
                           | None -> false
                         in
                         if implies_false then Some false else None
-                  | Eq, Theory desc -> (
-                      match Constraints.find_eq store atom.var with
+                  | Eq _, Theory desc -> (
+                      match Constraints.find_eq store key with
                       | Some (Desc desc') ->
                           if T.equal desc desc' then Some true else Some false
                       | None ->
-                          if Constraints.check_ne store atom.var (Desc desc)
-                          then Some false
+                          if Constraints.check_ne store key (Desc desc) then
+                            Some false
                           else None)
-                  | (Leq | Eq), Bool -> assert false
+                  | (Leq _ | Eq _), Bool -> assert false
                 in
                 restrict_impl t store.max_var eval_atom))
 
@@ -1305,8 +1340,8 @@ module Make (T : Theory) = struct
   (* Whether the theory post-processing below can actually change the cover.
      Redundancy modulo theory can only arise from an implication between two
      atoms, which requires two distinct theory (comparison/equality) atoms on
-     the {e same} variable -- ordered [Leq] bounds or mutually exclusive [Eq]
-     constants (a variable has a fixed kind, so its atoms share a category).
+     the {e same} variable and of the same category ([Atom.related]) --
+     ordered [Leq] bounds or mutually exclusive [Eq] constants.
      With fewer than two such atoms per variable [minato_sop] is already
      irredundant modulo theory, and the post-processing is a pure no-op. *)
   let needs_theory_refinement t =
@@ -1323,11 +1358,11 @@ module Make (T : Theory) = struct
         | If { atom = Atom { var; category; id = aid; _ }; high; low; _ } ->
             (match category with
             | Bool -> ()
-            | Leq | Eq -> (
-                match Hashtbl.find_opt seen var with
+            | Leq s | Eq s -> (
+                match Hashtbl.find_opt seen (var, s) with
                 | Some aid' when aid' <> aid -> raise Found
                 | Some _ -> ()
-                | None -> Hashtbl.add seen var aid));
+                | None -> Hashtbl.add seen (var, s) aid));
             go high;
             go low)
     in
@@ -1467,7 +1502,7 @@ module Combine (A : Theory) (B : Theory) = struct
 
     type 'kind desc = 'kind A.t
 
-    let atom var cat desc = atom var cat (Left desc)
+    let atom var cat desc = atom var (lift_category 1 cat) (Left desc)
   end
 
   module Right (F : Formula with type 'kind desc = 'kind t) = struct
@@ -1475,7 +1510,7 @@ module Combine (A : Theory) (B : Theory) = struct
 
     type 'kind desc = 'kind B.t
 
-    let atom var cat desc = atom var cat (Right desc)
+    let atom var cat desc = atom var (lift_category 2 cat) (Right desc)
   end
 
   let equal d d' =
@@ -1534,7 +1569,7 @@ module Leq (C : Comparable) = struct
   type kind
   type _ t = Bound : { limit : elt; inclusive : bool } -> kind t
 
-  let category = Leq
+  let category = Leq 0
 
   let equal (type kind) (Bound b : kind t) (type kind') (Bound b' : kind' t) =
     C.equal b.limit b'.limit && b.inclusive = b'.inclusive
@@ -1568,7 +1603,7 @@ module Eq (C : Comparable) = struct
   type kind
   type _ t = Const : elt -> kind t
 
-  let category = Eq
+  let category = Eq 0
 
   let equal (type kind) (Const v : kind t) (type kind') (Const v' : kind' t) =
     C.equal v v'

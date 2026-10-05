@@ -6,16 +6,9 @@ module F = Formula
 
 (* Constraint construction helpers *)
 let c_bool v b = F.Constraint.bool v b
-let c_str_eq v s = F.Constraint.atom v Eq.category (Right (Eq.Const s))
-
-let c_ver_le v limit =
-  F.Constraint.atom v Leq.category
-    (Left (Leq.Bound { limit; inclusive = true }))
-
-let c_ver_lt v limit =
-  F.Constraint.atom v Leq.category
-    (Left (Leq.Bound { limit; inclusive = false }))
-
+let c_str_eq v s = StringCstr.eq v s
+let c_ver_le v limit = VersionCstr.le v limit
+let c_ver_lt v limit = VersionCstr.lt v limit
 let c_ver_ge v limit = F.Constraint.not (c_ver_lt v limit)
 
 (* Generators *)

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fix unsound results with `Combine (A) (A)` (or any `Combine` whose two
+  sides share a theory instance, so that one variable can carry atoms of
+  both): atoms from different sides were reasoned about as one ordered
+  theory, e.g. `Left (v < 5)` was taken to entail `Right (v < 3)`. Atoms
+  from different sides are now independent. The low-level `atom` functions
+  must now be reached through `Combine`'s `Left`/`Right` lifts (as the
+  syntax modules do), since these record which side an atom comes from
 - Fuzzing: start every Monolith scenario from a pristine state, which takes
   afl's stability from 64% to 99.8% (the remaining 0.2% is the framework's
   first iteration). The harness prologue calls a new undocumented

@@ -367,7 +367,9 @@ module Make (T : Theory) : sig
     type nonrec 'kind desc = 'kind desc
 
     val atom : 'kind Var.t -> 'kind category -> 'kind desc -> t
-    (** Low-level function to build atom formulas *)
+    (** Low-level function to build atom formulas. With a [Combine]d theory, go
+        through its [Left]/[Right] lifts, which record the side the atom comes
+        from in its category. *)
   end
 
   (** {1 Operations} *)
@@ -506,7 +508,9 @@ module Make (T : Theory) : sig
   (**/**)
 
   val atom : 'kind Var.t -> 'kind category -> 'kind desc -> t
-  (** Low-level function to build atom formulas *)
+  (** Low-level function to build atom formulas. With a [Combine]d theory, go
+      through its [Left]/[Right] lifts, which record the side the atom comes
+      from in its category. *)
 
   val reset_state : unit -> unit
   (** [reset_state ()] restores the state this module had at program startup:
@@ -539,7 +543,9 @@ module type Formula = sig
   type _ desc
 
   val atom : 'kind Var.t -> 'kind category -> 'kind desc -> t
-  (** Low-level function to build atom formulas *)
+  (** Low-level function to build atom formulas. With a [Combine]d theory, go
+      through its [Left]/[Right] lifts, which record the side the atom comes
+      from in its category. *)
 end
 
 (** {1 Theory Composition} *)
@@ -550,7 +556,12 @@ end
     The resulting module provides [Left] and [Right] functors to lift a
     [Formula] operating on the combined theory back to a [Formula] operating on
     just [A] or [B]. This is the key mechanism that allows syntax modules to be
-    specific to a theory but compatible with the combined BDD. *)
+    specific to a theory but compatible with the combined BDD.
+
+    If both sides share a theory instance (e.g. [Combine (L) (L)]), a variable
+    can carry atoms of both sides. These are treated as independent: [Left]
+    atoms constrain one value and [Right] atoms another, with no reasoning
+    across the two. *)
 module Combine (A : Theory) (B : Theory) : sig
   (** The sum type of theory atoms.
 
